@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { ArrowLeft, User, Settings, Bell, CreditCard, Shield, LogOut, Edit2 } from 'lucide-react';
+import { checkSession, getDashboardData, getExpenseSummary, updateProfile } from '../api';
 
 interface ProfilePageProps {
   onBack: () => void;
@@ -13,11 +14,12 @@ interface ProfilePageProps {
 
 export function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState({
-    name: 'John Doe',
-    email: 'john.doe@email.com',
-    phone: '+1 (555) 123-4567',
-    currency: 'USD',
+    name: '',
+    email: '',
+    phone: '',
+    currency: 'INR',
     defaultSplitMethod: 'equal'
   });
   
@@ -29,16 +31,75 @@ export function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
   });
 
   const saveProfile = () => {
-    setIsEditing(false);
-    // In a real app, this would save to backend
+    // persist to backend
+    (async () => {
+      setIsEditing(false);
+      try {
+        await updateProfile({
+          username: profileData.name,
+          email: profileData.email,
+          phone: profileData.phone,
+          currency: profileData.currency,
+          defaultSplitMethod: profileData.defaultSplitMethod,
+        });
+      } catch (err) {
+        console.error('Failed to save profile', err);
+      }
+    })();
   };
 
-  const stats = {
-    totalExpenses: 1250.75,
-    expensesThisMonth: 15,
-    friendsCount: 8,
-    groupsCount: 3
-  };
+  const [stats, setStats] = useState({
+    totalExpenses: 0,
+    expensesThisMonth: 0,
+    friendsCount: 0,
+    groupsCount: 0
+  });
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchProfile() {
+      try {
+        setLoading(true);
+        const sessionRes = await checkSession();
+        if (sessionRes?.data?.loggedIn && mounted) {
+          const user = sessionRes.data.user || {};
+          setProfileData(prev => ({ ...prev, name: user.username || '', email: user.email || '' }));
+        }
+
+        const dashboardRes = await getDashboardData();
+        if (dashboardRes?.data && mounted) {
+          setStats(prev => ({
+            ...prev,
+            friendsCount: dashboardRes.data.totalFriends || 0,
+            groupsCount: dashboardRes.data.totalGroups || 0,
+          }));
+        }
+
+        const summaryRes = await getExpenseSummary();
+        if (summaryRes?.data && mounted) {
+          setStats(prev => ({
+            ...prev,
+            totalExpenses: summaryRes.data.totalPaid || 0,
+          }));
+        }
+
+        // For expensesThisMonth we can infer from recentExpenses length if available
+        if (dashboardRes?.data?.recentExpenses && mounted) {
+          setStats(prev => ({ ...prev, expensesThisMonth: dashboardRes.data.recentExpenses.length || 0 }));
+        }
+      } catch (err) {
+        // quietly ignore -- UI will show defaults
+        console.error('Failed to load profile data', err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    fetchProfile();
+
+    return () => { mounted = false; };
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 p-4">
@@ -144,7 +205,8 @@ export function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-blue-800 border-blue-600">
-                    <SelectItem value="USD" className="text-white hover:bg-blue-700">USD ($)</SelectItem>
+                    <SelectItem value="INR" className="text-white hover:bg-blue-700">INR (₹)</SelectItem>
+                    {/* USD removed — INR is the default currency */}
                     <SelectItem value="EUR" className="text-white hover:bg-blue-700">EUR (€)</SelectItem>
                     <SelectItem value="GBP" className="text-white hover:bg-blue-700">GBP (£)</SelectItem>
                     <SelectItem value="JPY" className="text-white hover:bg-blue-700">JPY (¥)</SelectItem>

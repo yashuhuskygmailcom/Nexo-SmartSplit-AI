@@ -31,6 +31,52 @@ db.serialize(() => {
     )
   `);
 
+  // Ensure optional profile columns exist on the users table (safe ALTERs)
+  db.all("PRAGMA table_info(users)", (err, rows) => {
+    if (err) {
+      console.error('Failed to read users table info', err);
+      return;
+    }
+    const cols = (rows || []).map(r => r.name);
+
+    // Build list of required ALTER statements (only ones that are needed)
+    const alters = [];
+    if (!cols.includes('phone')) alters.push("ALTER TABLE users ADD COLUMN phone TEXT");
+    if (!cols.includes('currency')) alters.push("ALTER TABLE users ADD COLUMN currency TEXT DEFAULT 'INR'");
+    if (!cols.includes('default_split_method')) alters.push("ALTER TABLE users ADD COLUMN default_split_method TEXT DEFAULT 'equal'");
+
+    // Run alters sequentially and then run the migration check after all alters complete
+    function runAlters(i) {
+      if (i >= alters.length) return runCurrencyMigration();
+      db.run(alters[i], (e) => {
+        if (e) console.error('Schema alter failed:', alters[i], e);
+        runAlters(i + 1);
+      });
+    }
+
+    function runCurrencyMigration() {
+      // Automatic migration: convert existing USD/empty currency values to INR
+      db.get("SELECT COUNT(*) as cnt FROM users WHERE currency IS NULL OR currency = '' OR currency = 'USD'", (mErr, mRow) => {
+        if (mErr) {
+          console.error('Currency migration check failed', mErr);
+          return;
+        }
+        const toMigrate = mRow && mRow.cnt ? mRow.cnt : 0;
+        if (toMigrate > 0) {
+          db.run("UPDATE users SET currency = 'INR' WHERE currency IS NULL OR currency = '' OR currency = 'USD'", function(uErr) {
+            if (uErr) {
+              console.error('Currency migration failed', uErr);
+              return;
+            }
+            console.log(`Currency migration: updated ${this.changes} user(s) to INR`);
+          });
+        }
+      });
+    }
+
+    if (alters.length > 0) runAlters(0); else runCurrencyMigration();
+  });
+
   db.run(`
     CREATE TABLE IF NOT EXISTS friends (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +123,78 @@ db.serialize(() => {
       amount_owed REAL NOT NULL
     )
   `);
+
+  // Additional tables for reminders and badges
+  db.run(`
+    CREATE TABLE IF NOT EXISTS payment_reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      due_date TEXT,
+      description TEXT,
+      paid INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS badges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      icon TEXT,
+      points_required INTEGER DEFAULT 0
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_badges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      badge_id INTEGER NOT NULL,
+      awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, badge_id)
+    )
+  `);
+
+  // Seed preset badges if they don't exist
+  seedPresetBadges();
 });
+
+function seedPresetBadges() {
+  const presetBadges = [
+    { name: 'Split Master', description: 'Successfully split 10 expenses', icon: '🏆' },
+    { name: 'Social Butterfly', description: 'Add 5 friends to your network', icon: '🦋' },
+    { name: 'Budget Boss', description: 'Stay under budget for a full month', icon: '💎' },
+    { name: 'Scanner Pro', description: 'Scan 20 receipts using OCR', icon: '📱' },
+    { name: 'Group Leader', description: 'Create 3 expense groups', icon: '👑' },
+    { name: 'Early Bird', description: 'Pay bills before due date 5 times', icon: '🌅' },
+    { name: 'Debt Free', description: 'Settle all debts with friends', icon: '✨' },
+    { name: 'Spender', description: 'Spend over $1000 in a month', icon: '💰' },
+    { name: 'Accountant', description: 'Track expenses for 30 consecutive days', icon: '📊' },
+    { name: 'Generous Soul', description: 'Pay for group expenses 10 times', icon: '🤝' },
+    { name: 'Weekend Warrior', description: 'Split expenses on weekend getaways', icon: '🎉' },
+    { name: 'Money Manager', description: 'Create and manage 5 different budgets', icon: '💼' },
+  ];
+
+  db.get('SELECT COUNT(*) as count FROM badges', (err, row) => {
+    if (err) {
+      console.error('Error checking badges:', err);
+      return;
+    }
+
+    // Only seed if no badges exist
+    if (row.count === 0) {
+      const insert = `INSERT INTO badges (name, description, icon, points_required) VALUES (?, ?, ?, ?)`;
+      presetBadges.forEach((badge) => {
+        db.run(insert, [badge.name, badge.description, badge.icon, 0], (err) => {
+          if (err) console.error('Error seeding badge:', err);
+        });
+      });
+      console.log('Preset badges seeded successfully.');
+    }
+  });
+}
 
 // ---------- MIDDLEWARE ----------
 app.use(express.json());
@@ -227,19 +344,43 @@ app.get('/api/user/:email', (req, res) => {
 app.get('/api/friends', requireAuth, (req, res) => {
   const userId = req.session.userId;
 
+  // Return friends along with a computed balance between the current user and each friend.
+  // balance = amount friend owes the user (positive) - amount user owes the friend (negative)
   const sql = `
-    SELECT u.id, u.username, u.email
+    SELECT u.id, u.username, u.email,
+      COALESCE((
+        SELECT SUM(s.amount_owed)
+        FROM expenses e
+        JOIN expense_splits s ON s.expense_id = e.id
+        WHERE e.paid_by = ? AND s.user_id = u.id
+      ), 0) AS owed_to_user,
+      COALESCE((
+        SELECT SUM(s.amount_owed)
+        FROM expenses e
+        JOIN expense_splits s ON s.expense_id = e.id
+        WHERE e.paid_by = u.id AND s.user_id = ?
+      ), 0) AS owed_by_user
     FROM friends f
     JOIN users u ON u.id = f.friend_id
     WHERE f.user_id = ?
   `;
 
-  db.all(sql, [userId], (err, rows) => {
+  db.all(sql, [userId, userId, userId], (err, rows) => {
     if (err) {
       console.error('Get friends error:', err);
       return res.status(500).json({ message: 'Failed to fetch friends' });
     }
-    res.json(rows);
+
+    const result = rows.map(r => ({
+      id: r.id,
+      username: r.username,
+      email: r.email,
+      balance: (r.owed_to_user || 0) - (r.owed_by_user || 0),
+    }));
+
+    console.log(`[GET /api/friends] userId: ${userId}, found ${result.length} friends:`, result);
+
+    res.json(result);
   });
 });
 
@@ -645,11 +786,54 @@ app.post('/api/scan-receipt', requireAuth, upload.single('receipt'), async (req,
       }
     }
 
+    // Try to extract item lines (name + price) from the receipt text.
+    const items = [];
+
+    // helper to parse price string to number
+    const parsePrice = (s) => {
+      if (!s) return null;
+      const cleaned = s.replace(/,/g, '.').replace(/[^0-9.]/g, '');
+      const v = parseFloat(cleaned);
+      return Number.isFinite(v) ? v : null;
+    };
+
+    // Find index of the line that contains the total (if any)
+    const totalLineIndex = lines.findIndex(l => /total/i.test(l));
+
+    // Consider candidate lines for items: after merchant line up to total line
+    const startIdx = 1;
+    const endIdx = totalLineIndex >= 0 ? totalLineIndex : lines.length;
+
+    for (let i = startIdx; i < endIdx; i++) {
+      const line = lines[i];
+      // skip obvious non-item lines
+      if (!line || /subtotal|tax|amount|balance|change|visa|mastercard/i.test(line)) continue;
+
+      const matches = [...line.matchAll(numberRegex)];
+      if (matches.length === 0) continue;
+
+      // take last numeric match as the price
+      const priceStr = matches[matches.length - 1][1];
+      const price = parsePrice(priceStr);
+      if (price === null) continue;
+
+      // derive name by removing the price substring from the line
+      let name = line.replace(priceStr, '').trim();
+      // remove leading quantity markers like "1 x" or "2x"
+      name = name.replace(/^\d+\s*x?\s*/i, '').trim();
+      // remove trailing separators
+      name = name.replace(/[-\.\s]+$/, '').trim();
+
+      if (!name) name = 'Item';
+
+      items.push({ name, price });
+    }
+
     const extracted = {
       merchantName,
       date,
       total,
-      items: [],
+      items,
     };
 
     res.json(extracted);
@@ -663,6 +847,165 @@ app.post('/api/scan-receipt', requireAuth, upload.single('receipt'), async (req,
       // ignore
     }
   }
+});
+
+// ---------- BADGES ----------
+// GET all badges (admin can see all, users see their own awards)
+app.get('/api/badges', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+  
+  const sql = `
+    SELECT b.id, b.name, b.description, b.icon, b.points_required,
+           COUNT(ub.id) as earned_by_count,
+           (SELECT 1 FROM user_badges WHERE user_id = ? AND badge_id = b.id LIMIT 1) as user_earned
+    FROM badges b
+    LEFT JOIN user_badges ub ON ub.badge_id = b.id
+    GROUP BY b.id
+    ORDER BY b.id
+  `;
+  
+  db.all(sql, [userId], (err, badges) => {
+    if (err) {
+      console.error('Get badges error:', err);
+      return res.status(500).json({ message: 'Failed to get badges' });
+    }
+    res.json(badges || []);
+  });
+});
+
+// POST - Create a new badge (admin only, but we'll allow for now)
+app.post('/api/badges', requireAuth, (req, res) => {
+  const { name, description, icon, points_required } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ message: 'Badge name is required' });
+  }
+  
+  const sql = `
+    INSERT INTO badges (name, description, icon, points_required)
+    VALUES (?, ?, ?, ?)
+  `;
+  
+  db.run(sql, [name, description || '', icon || '⭐', points_required || 0], function(err) {
+    if (err) {
+      console.error('Create badge error:', err);
+      return res.status(500).json({ message: 'Failed to create badge' });
+    }
+    res.json({ id: this.lastID, name, description, icon, points_required });
+  });
+});
+
+// PUT - Update a badge
+app.put('/api/badges/:id', requireAuth, (req, res) => {
+  const badgeId = req.params.id;
+  const { name, description, icon, points_required } = req.body;
+  
+  const sql = `
+    UPDATE badges
+    SET name = ?, description = ?, icon = ?, points_required = ?
+    WHERE id = ?
+  `;
+  
+  db.run(sql, [name, description, icon, points_required, badgeId], function(err) {
+    if (err) {
+      console.error('Update badge error:', err);
+      return res.status(500).json({ message: 'Failed to update badge' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: 'Badge not found' });
+    }
+    res.json({ id: badgeId, name, description, icon, points_required });
+  });
+});
+
+// DELETE - Delete a badge
+app.delete('/api/badges/:id', requireAuth, (req, res) => {
+  const badgeId = req.params.id;
+  
+  const sql = `DELETE FROM badges WHERE id = ?`;
+  
+  db.run(sql, [badgeId], function(err) {
+    if (err) {
+      console.error('Delete badge error:', err);
+      return res.status(500).json({ message: 'Failed to delete badge' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: 'Badge not found' });
+    }
+    res.json({ message: 'Badge deleted' });
+  });
+});
+
+// POST - Award badge to user
+app.post('/api/badges/:badgeId/award/:userId', requireAuth, (req, res) => {
+  const { badgeId, userId } = req.params;
+  
+  const sql = `
+    INSERT OR IGNORE INTO user_badges (user_id, badge_id)
+    VALUES (?, ?)
+  `;
+  
+  db.run(sql, [userId, badgeId], function(err) {
+    if (err) {
+      console.error('Award badge error:', err);
+      return res.status(500).json({ message: 'Failed to award badge' });
+    }
+    res.json({ message: 'Badge awarded' });
+  });
+});
+
+// DELETE - Revoke badge from user
+app.delete('/api/badges/:badgeId/award/:userId', requireAuth, (req, res) => {
+  const { badgeId, userId } = req.params;
+  
+  const sql = `
+    DELETE FROM user_badges
+    WHERE user_id = ? AND badge_id = ?
+  `;
+  
+  db.run(sql, [userId, badgeId], function(err) {
+    if (err) {
+      console.error('Revoke badge error:', err);
+      return res.status(500).json({ message: 'Failed to revoke badge' });
+    }
+    res.json({ message: 'Badge revoked' });
+  });
+});
+
+// ---------- LEADERBOARD ----------
+app.get('/api/leaderboard', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+  
+  const sql = `
+    SELECT 
+      u.id,
+      u.username as name,
+      COUNT(DISTINCT ub.id) as badges,
+      (SELECT COUNT(DISTINCT id) FROM expenses WHERE paid_by = u.id) as expenses_count,
+      (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE paid_by = u.id) as total_paid,
+      u.created_at
+    FROM users u
+    LEFT JOIN user_badges ub ON ub.user_id = u.id
+    GROUP BY u.id
+    ORDER BY badges DESC, total_paid DESC
+  `;
+  
+  db.all(sql, (err, users) => {
+    if (err) {
+      console.error('Get leaderboard error:', err);
+      return res.status(500).json({ message: 'Failed to get leaderboard' });
+    }
+    
+    // Add rank and calculate points (simple: badges * 100 + expenses_count * 50)
+    const leaderboard = (users || []).map((user, index) => ({
+      ...user,
+      rank: index + 1,
+      points: (user.badges || 0) * 100 + (user.expenses_count || 0) * 50,
+      avatar: user.name.charAt(0).toUpperCase()
+    }));
+    
+    res.json(leaderboard);
+  });
 });
 
 // ---------- DASHBOARD ----------
@@ -709,6 +1052,53 @@ app.get('/api/dashboard', requireAuth, (req, res) => {
           totalGroups: groupsRow.count || 0,
           recentExpenses: recentExpenses || [],
         });
+      });
+    });
+  });
+});
+
+// ---------- USER PROFILE ----------
+// Update current user's profile
+app.put('/api/user', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+  const { username, email, phone, currency, defaultSplitMethod } = req.body || {};
+
+  if (!username || !email) {
+    return res.status(400).json({ message: 'username and email are required' });
+  }
+
+  // Check email uniqueness (exclude current user)
+  db.get('SELECT id FROM users WHERE email = ? AND id != ?', [email, userId], (err, row) => {
+    if (err) {
+      console.error('Profile update - email check error', err);
+      return res.status(500).json({ message: 'Failed to update profile' });
+    }
+    if (row) {
+      return res.status(409).json({ message: 'Email already in use' });
+    }
+
+    const sql = `
+      UPDATE users
+      SET username = ?, email = ?, phone = ?, currency = ?, default_split_method = ?
+      WHERE id = ?
+    `;
+
+    db.run(sql, [username, email, phone || null, currency || 'INR', defaultSplitMethod || 'equal', userId], function (err2) {
+      if (err2) {
+        console.error('Profile update error', err2);
+        return res.status(500).json({ message: 'Failed to update profile' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      // Return updated user info
+      db.get('SELECT id, username, email, phone, currency, default_split_method as defaultSplitMethod FROM users WHERE id = ?', [userId], (err3, updated) => {
+        if (err3) {
+          console.error('Failed to fetch updated user', err3);
+          return res.status(500).json({ message: 'Failed to fetch updated profile' });
+        }
+        res.json({ user: updated });
       });
     });
   });

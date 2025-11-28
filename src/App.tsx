@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthPage } from './components/AuthPage';
 import { Dashboard } from './components/Dashboard';
 import { ExpenseSplitter } from './components/ExpenseSplitter';
@@ -10,6 +10,7 @@ import { PaymentReminders } from './components/PaymentReminders';
 import { BadgesLeaderboard } from './components/BadgesLeaderboard';
 import { BudgetTracker } from './components/BudgetTracker';
 import { Toaster } from './components/ui/toaster';
+import { checkSession } from './api';
 
 export type Page = 'auth' | 'dashboard' | 'splitter' | 'friends' | 'scanner' | 'chatbot' | 'profile' | 'reminders' | 'badges' | 'budget';
 
@@ -24,6 +25,25 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('auth');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  // Check if user is already logged in via server session (e.g., page refresh or revisit)
+  useEffect(() => {
+    const verifySession = async () => {
+      try {
+        const res = await checkSession();
+        if (res.data.loggedIn) {
+          setIsAuthenticated(true);
+          setCurrentPage('dashboard');
+        }
+      } catch (err) {
+        console.error('Session check failed:', err);
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+    verifySession();
+  }, []);
 
   const handleAuth = () => {
     setIsAuthenticated(true);
@@ -49,6 +69,14 @@ export default function App() {
   };
 
   const renderPage = () => {
+    if (isCheckingSession) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 flex items-center justify-center">
+          <div className="text-slate-200">Checking session...</div>
+        </div>
+      );
+    }
+
     if (!isAuthenticated) {
       return <AuthPage onAuth={handleAuth} />;
     }

@@ -1,5 +1,5 @@
 import {Page} from '../App';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -18,40 +18,96 @@ import {
   Target
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
+import { apiClient } from '../apiClient';
 
 interface DashboardProps {
  onNavigate: (page: Page) => void;
-
 }
 
-const mockSpendingData = [
-  { name: 'Week 1', amount: 120 },
-  { name: 'Week 2', amount: 350 },
-  { name: 'Week 3', amount: 280 },
-  { name: 'Week 4', amount: 190 },
-];
+interface FriendItem {
+  id: number;
+  username: string;
+  email: string;
+  balance?: number;
+}
 
-const mockFriends = [
-  { id: 1, name: 'Alice Johnson', avatar: '👩', balance: -25.50 },
-  { id: 2, name: 'Bob Smith', avatar: '👨', balance: 18.75 },
-  { id: 3, name: 'Carol Davis', avatar: '👩‍🦱', balance: -12.00 },
-  { id: 4, name: 'David Wilson', avatar: '👨‍🦲', balance: 35.25 },
-];
-
-const mockExpenses = [
-  { id: 1, name: 'Restaurant dinner', category: 'Food', friend: 'Alice Johnson' },
-  { id: 2, name: 'Movie tickets', category: 'Entertainment', friend: 'Bob Smith' },
-  { id: 3, name: 'Grocery shopping', category: 'Food', friend: 'Carol Davis' },
-  { id: 4, name: 'Gas station', category: 'Transport', friend: 'David Wilson' },
-];
+interface Expense {
+  id: number;
+  description: string;
+  amount: number;
+  date: string;
+  paid_by: number;
+  splits: { user_id: number; amount_owed: number }[];
+}
 
 export function Dashboard({ onNavigate }: DashboardProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredResults, setFilteredResults] = useState<any[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [friends, setFriends] = useState<FriendItem[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [summary, setSummary] = useState({ totalPaid: 0, totalOwed: 0 });
+  const [spendingData, setSpendingData] = useState<any[]>([]);
 
-  const totalSpent = mockSpendingData.reduce((sum, data) => sum + data.amount, 0);
+  useEffect(() => {
+    let mounted = true;
+    const fetchData = async () => {
+      try {
+        const [friendsRes, expensesRes, summaryRes] = await Promise.all([
+          apiClient.get('/friends'),
+          apiClient.get('/expenses'),
+          apiClient.get('/expenses/summary'),
+        ]);
+        if (mounted) {
+          setFriends(friendsRes.data || []);
+          setExpenses(expensesRes.data || []);
+          setSummary(summaryRes.data || { totalPaid: 0, totalOwed: 0 });
+          
+          // Compute weekly spending data from expenses
+          const weeklyData = computeWeeklySpending(expensesRes.data || []);
+          setSpendingData(weeklyData);
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+      }
+    };
+    fetchData();
+    return () => { mounted = false; };
+  }, []);
+
+  // Compute weekly spending from expenses
+  const computeWeeklySpending = (expensesList: Expense[]) => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const weeks: { [key: number]: number } = {
+      1: 0,
+      2: 0,
+      3: 0,
+      4: 0,
+    };
+
+    expensesList.forEach(exp => {
+      const expDate = new Date(exp.date);
+      if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
+        const day = expDate.getDate();
+        const week = Math.ceil(day / 7);
+        weeks[week] = (weeks[week] || 0) + exp.amount;
+      }
+    });
+
+    return [
+      { name: 'Week 1', amount: weeks[1] || 0 },
+      { name: 'Week 2', amount: weeks[2] || 0 },
+      { name: 'Week 3', amount: weeks[3] || 0 },
+      { name: 'Week 4', amount: weeks[4] || 0 },
+    ];
+  };
+
+  const totalSpent = spendingData.reduce((sum, data) => sum + data.amount, 0);
+  const youOwe = summary.totalOwed || 0;
+  const youOwed = summary.totalPaid || 0;
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -65,15 +121,14 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     const lowerQuery = query.toLowerCase();
     
     // Search through friends
-    const matchedFriends = mockFriends.filter(friend => 
-      friend.name.toLowerCase().includes(lowerQuery)
+    const matchedFriends = friends.filter(friend => 
+      friend.username.toLowerCase().includes(lowerQuery) || friend.email.toLowerCase().includes(lowerQuery)
     ).map(friend => ({ ...friend, type: 'friend' }));
 
     // Search through expenses
-    const matchedExpenses = mockExpenses.filter(expense => 
-      expense.name.toLowerCase().includes(lowerQuery) || 
-      expense.category.toLowerCase().includes(lowerQuery)
-    ).map(expense => ({ ...expense, type: 'expense' }));
+    const matchedExpenses = expenses.filter(expense => 
+      expense.description.toLowerCase().includes(lowerQuery)
+    ).map(expense => ({ ...expense, type: 'expense', name: expense.description, category: 'Expense' }));
 
     const results = [...matchedFriends, ...matchedExpenses];
     setFilteredResults(results);
@@ -142,7 +197,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                         </div>
                         {result.type === 'friend' && (
                           <span className={`text-sm ${result.balance >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                            ${Math.abs(result.balance).toFixed(2)}
+                            ₹{Math.abs(result.balance).toFixed(2)}
                           </span>
                         )}
                       </div>
@@ -161,7 +216,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-400 text-sm font-light">This Month</p>
-                  <p className="text-3xl text-slate-200 font-light">${totalSpent}</p>
+                  <p className="text-3xl text-slate-200 font-light">₹{totalSpent.toFixed(2)}</p>
                 </div>
                 <div className="w-12 h-12 bg-gradient-to-br from-blue-500/20 to-slate-500/20 rounded-2xl flex items-center justify-center">
                   <DollarSign className="h-6 w-6 text-blue-300" />
@@ -175,7 +230,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-400 text-sm font-light">You Owe</p>
-                  <p className="text-3xl text-red-300 font-light">$37.50</p>
+                  <p className="text-3xl text-red-300 font-light">₹{youOwe.toFixed(2)}</p>
                 </div>
                 <div className="w-12 h-12 bg-gradient-to-br from-red-500/20 to-slate-500/20 rounded-2xl flex items-center justify-center">
                   <TrendingUp className="h-6 w-6 text-red-300" />
@@ -189,7 +244,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-400 text-sm font-light">You're Owed</p>
-                  <p className="text-3xl text-green-300 font-light">$54.00</p>
+                  <p className="text-3xl text-green-300 font-light">₹{youOwed.toFixed(2)}</p>
                 </div>
                 <div className="w-12 h-12 bg-gradient-to-br from-green-500/20 to-slate-500/20 rounded-2xl flex items-center justify-center">
                   <TrendingUp className="h-6 w-6 text-green-300" />
@@ -206,7 +261,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={mockSpendingData}>
+              <LineChart data={spendingData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#475569" opacity={0.2} />
                 <XAxis dataKey="name" stroke="#94A3B8" fontSize={12} />
                 <YAxis stroke="#94A3B8" fontSize={12} />
@@ -344,17 +399,22 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {mockFriends.slice(0, 3).map((friend) => (
+              {friends.slice(0, 3).map((friend) => (
                 <div key={friend.id} className="flex items-center justify-between p-4 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 transition-all duration-300">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-500/20 to-slate-500/20 rounded-xl flex items-center justify-center text-lg">
-                      {friend.avatar}
+                      👤
                     </div>
-                    <span className="text-slate-200 font-medium">{friend.name}</span>
+                    <div>
+                      <span className="text-slate-200 font-medium">{friend.username}</span>
+                      <div className="text-slate-400 text-xs">{friend.email}</div>
+                    </div>
                   </div>
-                  <span className={`font-medium ${friend.balance >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                    ${Math.abs(friend.balance).toFixed(2)}
-                  </span>
+                  <div>
+                    <span className={`font-medium ${((friend as any).balance ?? 0) >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                      ₹{(Math.abs(((friend as any).balance ?? 0))).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>

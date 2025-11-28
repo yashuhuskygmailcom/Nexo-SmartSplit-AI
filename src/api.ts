@@ -77,7 +77,42 @@ export function scanReceipt(formData: FormData) {
   });
 }
 
+// ---------- BADGES ----------
+export function getBadges() {
+  return api.get('/badges');
+}
+
+export function createBadge(badgeData: any) {
+  return api.post('/badges', badgeData);
+}
+
+export function updateBadge(id: number | string, badgeData: any) {
+  return api.put(`/badges/${id}`, badgeData);
+}
+
+export function deleteBadge(id: number | string) {
+  return api.delete(`/badges/${id}`);
+}
+
+export function awardBadge(badgeId: number | string, userId: number | string) {
+  return api.post(`/badges/${badgeId}/award/${userId}`);
+}
+
+export function revokeBadge(badgeId: number | string, userId: number | string) {
+  return api.delete(`/badges/${badgeId}/award/${userId}`);
+}
+
+// ---------- LEADERBOARD ----------
+export function getLeaderboard() {
+  return api.get('/leaderboard');
+}
+
 // ---------- DASHBOARD ----------
 export function getDashboardData() {
   return api.get('/dashboard');
+}
+
+// ---------- USER PROFILE ----------
+export function updateProfile(profileData: any) {
+  return api.put('/user', profileData);
 }

@@ -15,6 +15,7 @@ interface Friend {
   id: number;
   username: string;
   email: string;
+  balance?: number;
 }
 
 interface Group {
@@ -34,10 +35,12 @@ export function FriendsList({ onBack }: FriendsListProps) {
 
   const fetchFriends = useCallback(async () => {
     try {
+      console.log('[FriendsList] Fetching friends...');
       const response = await apiClient.get('/friends');
+      console.log('[FriendsList] Friends fetched:', response.data);
       setFriends(response.data);
     } catch (error) {
-      console.error('Error fetching friends:', error);
+      console.error('[FriendsList] Error fetching friends:', error);
       toast({
         title: 'Error',
         description: 'Could not fetch friends.',
@@ -195,19 +198,28 @@ export function FriendsList({ onBack }: FriendsListProps) {
                 <CardTitle className="text-white">Your Friends</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {friends.map((friend) => (
-                    <div key={friend.id} className="flex items-center justify-between p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="text-3xl">👤</div>
+                {friends.length === 0 ? (
+                  <p className="text-blue-200 text-center py-4">No friends added yet. Add one using the form above!</p>
+                ) : (
+                  <div className="space-y-3">
+                    {friends.map((friend) => (
+                      <div key={friend.id} className="flex items-center justify-between p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="text-3xl">👤</div>
+                          <div>
+                            <p className="text-white">{friend.username}</p>
+                            <p className="text-blue-200 text-sm">{friend.email}</p>
+                          </div>
+                        </div>
                         <div>
-                          <p className="text-white">{friend.username}</p>
-                          <p className="text-blue-200 text-sm">{friend.email}</p>
+                          <span className={`font-medium ${((friend as any).balance ?? 0) >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                            ₹{(Math.abs(((friend as any).balance ?? 0))).toFixed(2)}
+                          </span>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </>
@@ -275,7 +287,7 @@ export function FriendsList({ onBack }: FriendsListProps) {
                         <h3 className="text-white">{group.name}</h3>
                         <div className="flex items-center gap-2 text-blue-200">
                           <DollarSign className="h-4 w-4" />
-                          <span>${group.totalExpenses.toFixed(2)}</span>
+                          <span>₹{group.totalExpenses.toFixed(2)}</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

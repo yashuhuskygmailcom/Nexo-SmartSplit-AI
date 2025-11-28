@@ -46,7 +46,7 @@ const mockReminders: Reminder[] = [
 export function PaymentReminders({ onBack }: PaymentRemindersProps) {
   const sendReminder = (friendName: string, amount: number) => {
     // Mock sending reminder
-    alert(`Reminder sent to ${friendName} for $${amount.toFixed(2)}`);
+    alert(`Reminder sent to ${friendName} for ₹${amount.toFixed(2)}`);
   };
 
   return (
@@ -96,7 +96,7 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-slate-200 font-medium">${reminder.amount.toFixed(2)}</p>
+                        <p className="text-slate-200 font-medium">₹{reminder.amount.toFixed(2)}</p>
                         <p className="text-slate-400 text-sm">Owes you</p>
                       </div>
                       <Button

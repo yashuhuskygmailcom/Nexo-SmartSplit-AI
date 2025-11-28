@@ -330,19 +330,22 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filteredExpenses.map(expense => (
+                                {filteredExpenses.map(expense => {
+                                    const splitAmount = expense.amount / expense.splits.length;
+                                    return (
                                     <TableRow key={expense.id} className="border-blue-400/10">
                                         <TableCell className="text-white">{expense.description}</TableCell>
-                                        <TableCell className="text-white">${expense.amount.toFixed(2)}</TableCell>
+                                        <TableCell className="text-white">₹{expense.amount.toFixed(2)}</TableCell>
                                         <TableCell className="text-white">{getUsername(expense.paid_by)}</TableCell>
-                                        <TableCell className="text-blue-200 text-sm">{expense.splits.length} people</TableCell>
+                                        <TableCell className="text-blue-200 text-sm">{expense.splits.length} people • ₹{splitAmount.toFixed(2)} each</TableCell>
                                         <TableCell>
                                             <Button variant="ghost" size="sm" onClick={() => removeExpenseHandler(expense.id)} className="text-red-400 hover:text-red-300">
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
                                         </TableCell>
                                     </TableRow>
-                                ))}
+                                );
+                                })}
                             </TableBody>
                         </Table>
                     </CardContent>
@@ -357,9 +360,9 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                             return (
                                 <div key={id} className="flex justify-between items-center p-4 rounded-lg bg-white/5 border border-blue-400/10 mb-2">
                                     <span className="text-white">{getUsername(Number(id))}</span>
-                                    <span className={balance > 0 ? 'text-green-400' : 'text-red-400'}>
-                                        {balance > 0 ? `Gets back $${balance.toFixed(2)}` : `Owes $${Math.abs(balance).toFixed(2)}`}
-                                    </span>
+                                  <span className={balance > 0 ? 'text-green-400' : 'text-red-400'}>
+                                    {balance > 0 ? `Gets back ₹${balance.toFixed(2)}` : `Owes ₹${Math.abs(balance).toFixed(2)}`}
+                                  </span>
                                 </div>
                             )
                         })}
