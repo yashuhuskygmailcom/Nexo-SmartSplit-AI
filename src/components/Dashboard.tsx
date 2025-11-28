@@ -1,3 +1,4 @@
+import {Page} from '../App';
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -18,8 +19,10 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+
 interface DashboardProps {
-  onNavigate: (page: string) => void;
+ onNavigate: (page: Page) => void;
+
 }
 
 const mockSpendingData = [

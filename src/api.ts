@@ -1,38 +1,83 @@
+// src/api.ts
 import axios from 'axios';
 
-const API_BASE_URL = '/api';
-
-// Set up axios to send credentials with every request
-axios.defaults.withCredentials = true;
-
-// User and Session Management
-export const checkSession = () => axios.get(`${API_BASE_URL}/check-session`);
-export const signup = (userData: any) => axios.post(`${API_BASE_URL}/signup`, userData);
-export const login = (credentials: any) => axios.post(`${API_BASE_URL}/login`, credentials);
-export const logout = () => axios.post(`${API_BASE_URL}/logout`);
-export const getUser = (email: string) => axios.get(`${API_BASE_URL}/user/${email}`);
-
-// Expense Management
-export const getExpenses = () => axios.get(`${API_BASE_URL}/expenses`);
-export const createExpense = (expenseData: any) => axios.post(`${API_BASE_URL}/expenses`, expenseData);
-export const updateExpense = (id: string, expenseData: any) => axios.put(`${API_BASE_URL}/expenses/${id}`, expenseData);
-export const deleteExpense = (id: string) => axios.delete(`${API_BASE_URL}/expenses/${id}`);
-export const getExpenseSummary = () => axios.get(`${API_BASE_URL}/expenses/summary`);
-
-// Friends Management
-export const getFriends = () => axios.get(`${API_BASE_URL}/friends`);
-export const addFriend = (friendId: any) => axios.post(`${API_BASE_URL}/friends`, friendId);
-
-// Group Management
-export const getGroups = () => axios.get(`${API_BASE_URL}/groups`);
-export const createGroup = (groupData: any) => axios.post(`${API_BASE_URL}/groups`, groupData);
-
-// OCR
-export const scanReceipt = (formData: FormData) => axios.post(`${API_BASE_URL}/scan-receipt`, formData, {
-    headers: {
-        'Content-Type': 'multipart/form-data',
-    },
+// In dev, Vite proxies /api to http://localhost:3003 (check vite.config if needed)
+const api = axios.create({
+  baseURL: '/api',
+  withCredentials: true,
 });
 
-// Dashboard
-export const getDashboardData = () => axios.get(`${API_BASE_URL}/dashboard`);
+// ---------- AUTH / USER ----------
+export function checkSession() {
+  return api.get('/check-session');
+}
+
+export function signup(userData: any) {
+  return api.post('/signup', userData);
+}
+
+export function login(credentials: any) {
+  return api.post('/login', credentials);
+}
+
+export function logout() {
+  return api.post('/logout');
+}
+
+export function getUser(email: string) {
+  return api.get(`/user/${encodeURIComponent(email)}`);
+}
+
+// ---------- EXPENSES ----------
+export function getExpenses() {
+  return api.get('/expenses');
+}
+
+export function createExpense(expenseData: any) {
+  return api.post('/expenses', expenseData);
+}
+
+export function updateExpense(id: string | number, expenseData: any) {
+  return api.put(`/expenses/${id}`, expenseData);
+}
+
+export function deleteExpense(id: string | number) {
+  return api.delete(`/expenses/${id}`);
+}
+
+// ✅ SUMMARY – used by chatbot
+export function getExpenseSummary() {
+  return api.get('/expenses/summary'); // { totalPaid, totalOwed }
+}
+
+// ---------- FRIENDS ----------
+export function getFriends() {
+  return api.get('/friends');
+}
+
+export function addFriend(friendId: number) {
+  return api.post('/friends', { friendId });
+}
+
+// ---------- GROUPS ----------
+export function getGroups() {
+  return api.get('/groups');
+}
+
+export function createGroup(groupData: any) {
+  return api.post('/groups', groupData);
+}
+
+// ---------- OCR ----------
+export function scanReceipt(formData: FormData) {
+  return api.post('/scan-receipt', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+}
+
+// ---------- DASHBOARD ----------
+export function getDashboardData() {
+  return api.get('/dashboard');
+}

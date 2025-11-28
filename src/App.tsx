@@ -4,14 +4,14 @@ import { Dashboard } from './components/Dashboard';
 import { ExpenseSplitter } from './components/ExpenseSplitter';
 import { FriendsList } from './components/FriendsList';
 import { OCRScanner } from './components/OCRScanner';
-import { ChatBot } from './components/ChatBot';
+import ChatBot from './components/ChatBot';
 import { ProfilePage } from './components/ProfilePage';
 import { PaymentReminders } from './components/PaymentReminders';
 import { BadgesLeaderboard } from './components/BadgesLeaderboard';
 import { BudgetTracker } from './components/BudgetTracker';
 import { Toaster } from './components/ui/toaster';
 
-type Page = 'auth' | 'dashboard' | 'splitter' | 'friends' | 'scanner' | 'chatbot' | 'profile' | 'reminders' | 'badges' | 'budget';
+export type Page = 'auth' | 'dashboard' | 'splitter' | 'friends' | 'scanner' | 'chatbot' | 'profile' | 'reminders' | 'badges' | 'budget';
 
 export interface ExtractedData {
   merchantName: string;
