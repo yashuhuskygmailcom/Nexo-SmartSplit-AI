@@ -35,11 +35,20 @@ interface Group {
   totalExpenses: number;
 }
 
+interface BudgetCategory {
+  id: number;
+  name: string;
+  budget_amount: number;
+  icon: string;
+  color: string;
+}
+
 export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBack: () => void; initialData?: ExtractedData | null, setInitialData: (data: ExtractedData | null) => void }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [friends, setFriends] = useState<User[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
 
   const [newExpense, setNewExpense] = useState({
     description: '',
@@ -47,6 +56,8 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
     paidBy: '', 
     participantIds: [] as number[],
     groupId: '',
+    payFromWallet: false,
+    budgetCategory: '',
   });
 
   const [newGroup, setNewGroup] = useState({
@@ -82,15 +93,17 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
       setNewExpense(prev => ({ ...prev, paidBy: user.id.toString(), participantIds: [user.id] }));
       setNewGroup(prev => ({ ...prev, memberIds: [user.id] }));
 
-      const [expensesRes, friendsRes, groupsRes] = await Promise.all([
+      const [expensesRes, friendsRes, groupsRes, budgetsRes] = await Promise.all([
         api.getExpenses(),
         api.getFriends(),
         api.getGroups(),
+        api.getBudgets(),
       ]);
 
       setExpenses(expensesRes.data);
       setFriends([user, ...friendsRes.data]); // Add current user to friends list for selections
       setGroups(groupsRes.data);
+      setBudgetCategories(budgetsRes.data || []);
 
     } catch (error) {
       console.error("Error fetching initial data:", error);
@@ -165,7 +178,7 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
   };
 
   const addExpenseHandler = async () => {
-    const { description, amount, paidBy, participantIds } = newExpense;
+    const { description, amount, paidBy, participantIds, payFromWallet, budgetCategory } = newExpense;
     if (description && amount && participantIds.length > 0 && paidBy) {
       const parsedAmount = parseFloat(amount);
       const splitAmount = parsedAmount / participantIds.length;
@@ -180,10 +193,23 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
           amount_owed: splitAmount,
         })),
         groupId: newExpense.groupId ? parseInt(newExpense.groupId, 10) : undefined,
+        budgetCategory: budgetCategory ? parseInt(budgetCategory, 10) : null,
       };
 
       try {
         await api.createExpense(expenseData);
+        
+        // If user opted to pay from wallet, deduct the amount
+        if (payFromWallet && parseInt(paidBy, 10) === currentUser?.id) {
+          try {
+            await api.payDebtFromWallet(parsedAmount, undefined, `Payment for expense: ${description}`);
+          } catch (walletError) {
+            console.error("Error paying from wallet:", walletError);
+            // Continue even if wallet payment fails - expense is already created
+            toast.error("Expense created but failed to deduct from wallet");
+          }
+        }
+        
         refreshData();
         setNewExpense({
           description: '',
@@ -191,10 +217,14 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
           paidBy: currentUser ? currentUser.id.toString() : '',
           participantIds: currentUser ? [currentUser.id] : [],
           groupId: '',
+          payFromWallet: false,
+          budgetCategory: '',
         });
         setInitialData(null);
+        toast.success('Expense added successfully');
       } catch (error) {
         console.error("Error adding expense:", error);
+        toast.error("Failed to add expense");
       }
     }
   };
@@ -292,6 +322,20 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                             </Select>
                         </div>
                         <div>
+                          <Select value={newExpense.budgetCategory} onValueChange={value => setNewExpense({...newExpense, budgetCategory: value})}>
+                            <SelectTrigger className="bg-white/5 border-blue-400/30 text-white"><SelectValue placeholder="Select budget category (optional)" /></SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-blue-600">
+                              {budgetCategories.map(bc => <SelectItem key={bc.id} value={bc.id.toString()}>{bc.icon} {bc.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          {budgetCategories.length === 0 && (
+                            <p className="text-xs text-slate-400 mt-2">💡 No budget categories yet. Create one in Budget Boss to track spending!</p>
+                          )}
+                          {budgetCategories.length > 0 && (
+                            <p className="text-xs text-blue-300 mt-2">📊 Your budgets: {budgetCategories.map(bc => `${bc.icon} ${bc.name}`).join(', ')}</p>
+                          )}
+                        </div>
+                        <div>
                           <Button onClick={() => setShowParticipantDialog(true)} variant="outline" className="bg-white/5 border-blue-400/30 text-blue-200 hover:bg-white/10">
                             <Users className="h-4 w-4 mr-2" />
                             Select Participants ({newExpense.participantIds.length})
@@ -311,6 +355,16 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                                 </DialogContent>
                             </Dialog>
                         </div>
+                        <div className="flex items-center gap-3 p-3 bg-slate-700/20 rounded-lg border border-blue-400/20">
+                          <Checkbox 
+                            checked={newExpense.payFromWallet} 
+                            onCheckedChange={(checked) => setNewExpense({...newExpense, payFromWallet: checked as boolean})}
+                            id="payFromWallet"
+                          />
+                          <label htmlFor="payFromWallet" className="text-slate-200 cursor-pointer text-sm flex-1">
+                            Pay from wallet (if I am the payer)
+                          </label>
+                        </div>
                         <Button onClick={addExpenseHandler} disabled={!newExpense.description || !newExpense.amount} className="w-full bg-gradient-to-r from-blue-600 to-blue-800">Add Expense</Button>
                     </CardContent>
                 </Card>
@@ -326,18 +380,22 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                                     <TableHead className="text-blue-200">Amount</TableHead>
                                     <TableHead className="text-blue-200">Paid By</TableHead>
                                     <TableHead className="text-blue-200">Split Among</TableHead>
+                                    <TableHead className="text-blue-200">Category</TableHead>
                                     <TableHead className="text-blue-200">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {filteredExpenses.map(expense => {
                                     const splitAmount = expense.amount / expense.splits.length;
+                                    const categoryName = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategory)?.name || '-';
+                                    const categoryIcon = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategory)?.icon || '';
                                     return (
                                     <TableRow key={expense.id} className="border-blue-400/10">
                                         <TableCell className="text-white">{expense.description}</TableCell>
                                         <TableCell className="text-white">₹{expense.amount.toFixed(2)}</TableCell>
                                         <TableCell className="text-white">{getUsername(expense.paid_by)}</TableCell>
                                         <TableCell className="text-blue-200 text-sm">{expense.splits.length} people • ₹{splitAmount.toFixed(2)} each</TableCell>
+                                        <TableCell className="text-blue-200 text-sm">{categoryIcon} {categoryName}</TableCell>
                                         <TableCell>
                                             <Button variant="ghost" size="sm" onClick={() => removeExpenseHandler(expense.id)} className="text-red-400 hover:text-red-300">
                                                 <Trash2 className="h-4 w-4" />

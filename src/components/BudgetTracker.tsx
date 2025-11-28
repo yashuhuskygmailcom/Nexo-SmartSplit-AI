@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Progress } from './ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ArrowLeft, Target, TrendingUp, TrendingDown, Plus, Edit2, AlertTriangle, Trash2 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import * as api from '../api';
+import { toast } from 'sonner';
 
 interface BudgetTrackerProps {
   onBack: () => void;
@@ -19,25 +22,125 @@ interface BudgetCategory {
   color: string;
 }
 
-const mockBudgets: BudgetCategory[] = [
-  { id: '1', name: 'Food & Dining', budget: 400, spent: 325, icon: '🍽️', color: 'from-orange-500 to-red-500' },
-  { id: '2', name: 'Entertainment', budget: 200, spent: 150, icon: '🎬', color: 'from-purple-500 to-pink-500' },
-  { id: '3', name: 'Transportation', budget: 150, spent: 89, icon: '🚗', color: 'from-blue-500 to-cyan-500' },
-  { id: '4', name: 'Shopping', budget: 300, spent: 425, icon: '🛍️', color: 'from-green-500 to-emerald-500' },
-  { id: '5', name: 'Health & Fitness', budget: 100, spent: 45, icon: '💪', color: 'from-teal-500 to-green-500' },
-];
-
 export function BudgetTracker({ onBack }: BudgetTrackerProps) {
-  const [budgets, setBudgets] = useState<BudgetCategory[]>(mockBudgets);
+  const [budgets, setBudgets] = useState<BudgetCategory[]>([]);
   const [newBudget, setNewBudget] = useState({ name: '', amount: '', category: 'food' });
   const [isAddingBudget, setIsAddingBudget] = useState(false);
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
-  const [editingSpentAmount, setEditingSpentAmount] = useState('');
   const [editingBudgetAmount, setEditingBudgetAmount] = useState('');
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  const fetchAllData = async () => {
+    try {
+      setIsLoading(true);
+      const [budgetsRes, expensesRes] = await Promise.all([
+        api.getBudgets(),
+        api.getExpenses(),
+      ]);
+      
+      // Transform budgets to include spent from expenses
+      const budgetsData = budgetsRes.data || [];
+      const expensesData = expensesRes.data || [];
+      
+      const transformedBudgets = budgetsData.map((b: any) => {
+        // Calculate spent for this budget from expenses with matching budget_category_id
+        const spent = expensesData.reduce((total: number, exp: any) => {
+          if (exp.budgetCategoryId === b.id) {
+            return total + exp.amount;
+          }
+          return total;
+        }, 0);
+
+        return {
+          id: b.id.toString(),
+          name: b.name,
+          budget: b.budget_amount,
+          spent: spent, // Calculated from expenses
+          icon: b.icon || '💰',
+          color: b.color || 'from-slate-500 to-slate-600'
+        };
+      });
+      
+      setBudgets(transformedBudgets);
+      setExpenses(expensesData);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Failed to load budgets");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Calculate this month's total spent from actual expenses
+  const thisMonthSpent = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    return expenses.reduce((total, exp) => {
+      const expDate = new Date(exp.date);
+      if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
+        return total + exp.amount;
+      }
+      return total;
+    }, 0);
+  }, [expenses]);
+
+  // Generate graph data - daily spending for this month
+  const graphData = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    
+    const dailySpending: { [key: number]: number } = {};
+    let maxSpending = 0;
+    
+    // Initialize all days with 0
+    for (let i = 1; i <= daysInMonth; i++) {
+      dailySpending[i] = 0;
+    }
+    
+    // Sum expenses by day
+    expenses.forEach(exp => {
+      const expDate = new Date(exp.date);
+      if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
+        const day = expDate.getDate();
+        dailySpending[day] = (dailySpending[day] || 0) + exp.amount;
+        maxSpending = Math.max(maxSpending, dailySpending[day]);
+      }
+    });
+    
+    // Convert to array format for chart
+    const chartData = [];
+    const step = Math.max(1, Math.ceil(daysInMonth / 10)); // Show max 10 points on chart
+    
+    for (let i = 1; i <= daysInMonth; i += step) {
+      chartData.push({
+        name: `${i}`,
+        amount: dailySpending[i] || 0
+      });
+    }
+    
+    // Always add the last day
+    if ((daysInMonth - 1) % step !== 0) {
+      chartData.push({
+        name: `${daysInMonth}`,
+        amount: dailySpending[daysInMonth] || 0
+      });
+    }
+    
+    return chartData.length > 0 ? chartData : [{ name: 'No data', amount: 0 }];
+  }, [expenses]);
 
   const totalBudget = budgets.reduce((sum, b) => sum + b.budget, 0);
-  const totalSpent = budgets.reduce((sum, b) => sum + b.spent, 0);
+  const totalSpent = thisMonthSpent; // Use actual expenses from this month
   const remainingBudget = totalBudget - totalSpent;
 
   const getProgressColor = (spent: number, budget: number) => {
@@ -56,25 +159,38 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
     return { status: 'Good', color: 'text-green-400' };
   };
 
-  const addBudget = () => {
+  const addBudget = async () => {
     if (newBudget.name && newBudget.amount) {
-      const b: BudgetCategory = {
-        id: Date.now().toString(),
-        name: newBudget.name,
-        budget: parseFloat(newBudget.amount),
-        spent: 0,
-        icon: '💰',
-        color: 'from-slate-500 to-slate-600',
-      };
-      setBudgets([...budgets, b]);
-      setNewBudget({ name: '', amount: '', category: 'food' });
-      setIsAddingBudget(false);
+      try {
+        const response = await api.createBudget(
+          newBudget.name,
+          parseFloat(newBudget.amount),
+          '💰',
+          'from-slate-500 to-slate-600'
+        );
+        
+        const newBudgetData: BudgetCategory = {
+          id: response.data.id.toString(),
+          name: response.data.name,
+          budget: response.data.budget_amount,
+          spent: 0,
+          icon: response.data.icon,
+          color: response.data.color,
+        };
+        
+        setBudgets([...budgets, newBudgetData]);
+        setNewBudget({ name: '', amount: '', category: 'food' });
+        setIsAddingBudget(false);
+        toast.success('Budget created successfully');
+      } catch (error) {
+        console.error("Error creating budget:", error);
+        toast.error("Failed to create budget");
+      }
     }
   };
 
   const openEditDialog = (budget: BudgetCategory) => {
     setEditingBudgetId(budget.id);
-    setEditingSpentAmount(budget.spent.toString());
     setEditingBudgetAmount(budget.budget.toString());
     setIsEditDialogOpen(true);
   };
@@ -83,19 +199,36 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
     setBudgets(budgets.map(b => (b.id === budgetId ? { ...b, spent: newSpent } : b)));
     setIsEditDialogOpen(false);
     setEditingBudgetId(null);
-    setEditingSpentAmount('');
     setEditingBudgetAmount('');
   };
 
-  const updateBudgetAmount = (budgetId: string, newBudget: number) => {
-    setBudgets(budgets.map(b => (b.id === budgetId ? { ...b, budget: newBudget } : b)));
-    setIsEditDialogOpen(false);
-    setEditingBudgetId(null);
-    setEditingBudgetAmount('');
-    setEditingSpentAmount('');
+  const updateBudgetAmount = async (budgetId: string, newBudgetAmount: number) => {
+    try {
+      const budget = budgets.find(b => b.id === budgetId);
+      if (!budget) return;
+      
+      await api.updateBudget(budgetId, budget.name, newBudgetAmount, budget.icon, budget.color);
+      setBudgets(budgets.map(b => (b.id === budgetId ? { ...b, budget: newBudgetAmount } : b)));
+      setIsEditDialogOpen(false);
+      setEditingBudgetId(null);
+      setEditingBudgetAmount('');
+      toast.success('Budget limit updated');
+    } catch (error) {
+      console.error("Error updating budget:", error);
+      toast.error("Failed to update budget");
+    }
   };
 
-  const deleteBudget = (id: string) => setBudgets(budgets.filter(b => b.id !== id));
+  const deleteBudget = async (id: string) => {
+    try {
+      await api.deleteBudget(id);
+      setBudgets(budgets.filter(b => b.id !== id));
+      toast.success('Budget deleted');
+    } catch (error) {
+      console.error("Error deleting budget:", error);
+      toast.error("Failed to delete budget");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 p-4">
@@ -139,6 +272,44 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
                 <p className="text-slate-400 text-sm">Budget Used</p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Monthly Spending Graph */}
+        <Card className="bg-slate-800/40 backdrop-blur-xl border-slate-600/30 shadow-2xl">
+          <CardHeader>
+            <CardTitle className="text-slate-200 font-light tracking-wide">This Month's Spending Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="h-64 flex items-center justify-center text-slate-400">Loading spending data...</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={graphData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#475569" opacity={0.2} />
+                  <XAxis dataKey="name" stroke="#94A3B8" fontSize={12} label={{ value: 'Day of Month', position: 'insideBottomRight', offset: -5 }} />
+                  <YAxis stroke="#94A3B8" fontSize={12} label={{ value: 'Amount (₹)', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'rgba(30, 41, 59, 0.95)', 
+                      border: '1px solid #475569',
+                      borderRadius: '12px',
+                      color: '#E2E8F0',
+                      fontSize: '14px'
+                    }}
+                    formatter={(value) => `₹${value.toFixed(2)}`}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="amount" 
+                    stroke="#60A5FA" 
+                    strokeWidth={2}
+                    dot={{ fill: '#3B82F6', strokeWidth: 0, r: 4 }}
+                    activeDot={{ r: 6, fill: '#60A5FA', strokeWidth: 0 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
@@ -228,41 +399,39 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
                 <Input type="number" placeholder="Enter budget limit" value={editingBudgetAmount} onChange={(e) => setEditingBudgetAmount(e.target.value)} className="bg-slate-800/50 border-slate-600/50 text-slate-200 placeholder:text-slate-500" />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm text-slate-300">Amount Spent (₹)</label>
-                <Input type="number" placeholder="Enter amount spent" value={editingSpentAmount} onChange={(e) => setEditingSpentAmount(e.target.value)} className="bg-slate-800/50 border-slate-600/50 text-slate-200 placeholder:text-slate-500" />
+              <div className="bg-blue-500/10 border border-blue-500/30 p-3 rounded-lg">
+                <p className="text-xs text-blue-300">💡 <strong>Tip:</strong> Spending is calculated from actual expenses. Create expenses in the Splitter to track spending.</p>
               </div>
 
               {editingBudgetId && (
                 <div className="bg-slate-800/30 p-3 rounded-lg border border-slate-600/30 space-y-1">
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Budget Limit:</span>
+                    <span className="text-slate-400">Current Budget Limit:</span>
                     <span className="text-slate-200">₹{editingBudgetAmount || 0}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-400">Amount Spent:</span>
-                    <span className="text-slate-200">₹{editingSpentAmount || 0}</span>
+                    <span className="text-slate-400">Current Spending:</span>
+                    <span className="text-slate-200">₹{budgets.find(b => b.id === editingBudgetId)?.spent.toFixed(2) || 0}</span>
                   </div>
                   <div className="flex justify-between text-sm pt-1 border-t border-slate-600/30">
                     <span className="text-slate-400">Remaining:</span>
-                    <span className={`font-medium ${parseFloat(editingBudgetAmount || '0') - parseFloat(editingSpentAmount || '0') >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      ₹{(parseFloat(editingBudgetAmount || '0') - parseFloat(editingSpentAmount || '0')).toFixed(2)}
+                    <span className={`font-medium ${parseFloat(editingBudgetAmount || '0') - (budgets.find(b => b.id === editingBudgetId)?.spent || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      ₹{(parseFloat(editingBudgetAmount || '0') - (budgets.find(b => b.id === editingBudgetId)?.spent || 0)).toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-400">Usage:</span>
-                    <span className="text-slate-200">{parseFloat(editingBudgetAmount || '0') > 0 ? ((parseFloat(editingSpentAmount || '0') / parseFloat(editingBudgetAmount || '1')) * 100).toFixed(0) : 0}%</span>
+                    <span className="text-slate-200">{parseFloat(editingBudgetAmount || '0') > 0 ? (((budgets.find(b => b.id === editingBudgetId)?.spent || 0) / parseFloat(editingBudgetAmount || '1')) * 100).toFixed(0) : 0}%</span>
                   </div>
                 </div>
               )}
 
               <div className="flex gap-3 pt-4">
                 <Button onClick={() => {
-                  if (editingBudgetId && editingBudgetAmount && editingSpentAmount) {
+                  if (editingBudgetId && editingBudgetAmount) {
                     updateBudgetAmount(editingBudgetId, parseFloat(editingBudgetAmount));
-                    updateSpentAmount(editingBudgetId, parseFloat(editingSpentAmount));
                   }
-                }} className="flex-1 bg-gradient-to-r from-green-600/80 to-emerald-600/80 hover:from-green-500/80 hover:to-emerald-500/80 text-white border-0 rounded-lg">Save Changes</Button>
+                }} className="flex-1 bg-gradient-to-r from-green-600/80 to-emerald-600/80 hover:from-green-500/80 hover:to-emerald-500/80 text-white border-0 rounded-lg">Save Budget Limit</Button>
                 <Button onClick={() => setIsEditDialogOpen(false)} variant="outline" className="flex-1 bg-slate-800/50 hover:bg-slate-700/50 border-slate-600/50 text-slate-200 rounded-lg">Cancel</Button>
               </div>
             </div>

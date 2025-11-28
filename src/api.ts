@@ -116,3 +116,37 @@ export function getDashboardData() {
 export function updateProfile(profileData: any) {
   return api.put('/user', profileData);
 }
+
+// ---------- WALLET ----------
+export function getWallet() {
+  return api.get('/wallet');
+}
+
+export function addWalletFunds(amount: number, description?: string) {
+  return api.post('/wallet/add-funds', { amount, description });
+}
+
+export function payDebtFromWallet(amount: number, friendId?: number, description?: string) {
+  return api.post('/wallet/pay-debt', { amount, friendId, description });
+}
+
+export function getWalletTransactions() {
+  return api.get('/wallet/transactions');
+}
+
+// ---------- BUDGETS ----------
+export function getBudgets() {
+  return api.get('/budgets');
+}
+
+export function createBudget(name: string, budget_amount: number, icon?: string, color?: string) {
+  return api.post('/budgets', { name, budget_amount, icon, color });
+}
+
+export function updateBudget(budgetId: string | number, name: string, budget_amount: number, icon?: string, color?: string) {
+  return api.put(`/budgets/${budgetId}`, { name, budget_amount, icon, color });
+}
+
+export function deleteBudget(budgetId: string | number) {
+  return api.delete(`/budgets/${budgetId}`);
+}

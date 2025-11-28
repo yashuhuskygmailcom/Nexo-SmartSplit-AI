@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Bell, Clock, ArrowLeft } from 'lucide-react';
+import { Bell, Clock, ArrowLeft, Wallet } from 'lucide-react';
+import * as api from '../api';
+import { toast } from 'sonner';
 
 interface PaymentRemindersProps {
   onBack: () => void;
@@ -44,9 +46,25 @@ const mockReminders: Reminder[] = [
 ];
 
 export function PaymentReminders({ onBack }: PaymentRemindersProps) {
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [reminders, setReminders] = useState(mockReminders);
+
   const sendReminder = (friendName: string, amount: number) => {
-    // Mock sending reminder
-    alert(`Reminder sent to ${friendName} for ₹${amount.toFixed(2)}`);
+    toast.success(`Reminder sent to ${friendName} for ₹${amount.toFixed(2)}`);
+  };
+
+  const handlePayFromWallet = async (reminderId: string, friendName: string, amount: number) => {
+    setPayingId(reminderId);
+    try {
+      const result = await api.payDebtFromWallet(amount, undefined, `Payment reminder to ${friendName}`);
+      toast.success(`Paid ₹${amount.toFixed(2)} from wallet to ${friendName}`);
+      // Remove the paid reminder from the list
+      setReminders(reminders.filter(r => r.id !== reminderId));
+    } catch (error) {
+      toast.error(`Failed to pay from wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPayingId(null);
+    }
   };
 
   return (
@@ -99,14 +117,25 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
                         <p className="text-slate-200 font-medium">₹{reminder.amount.toFixed(2)}</p>
                         <p className="text-slate-400 text-sm">Owes you</p>
                       </div>
-                      <Button
-                        onClick={() => sendReminder(reminder.friendName, reminder.amount)}
-                        size="sm"
-                        className="bg-gradient-to-r from-blue-600/80 to-slate-600/80 hover:from-blue-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg transition-all duration-300"
-                      >
-                        <Bell className="h-3 w-3 mr-1" />
-                        Remind
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => handlePayFromWallet(reminder.id, reminder.friendName, reminder.amount)}
+                          disabled={payingId === reminder.id}
+                          size="sm"
+                          className="bg-gradient-to-r from-cyan-600/80 to-slate-600/80 hover:from-cyan-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg transition-all duration-300"
+                        >
+                          <Wallet className="h-3 w-3 mr-1" />
+                          {payingId === reminder.id ? 'Paying...' : 'Pay'}
+                        </Button>
+                        <Button
+                          onClick={() => sendReminder(reminder.friendName, reminder.amount)}
+                          size="sm"
+                          className="bg-gradient-to-r from-blue-600/80 to-slate-600/80 hover:from-blue-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg transition-all duration-300"
+                        >
+                          <Bell className="h-3 w-3 mr-1" />
+                          Remind
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>

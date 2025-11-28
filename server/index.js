@@ -111,7 +111,8 @@ db.serialize(() => {
       amount REAL NOT NULL,
       date TEXT NOT NULL,
       paid_by INTEGER NOT NULL,
-      group_id INTEGER
+      group_id INTEGER,
+      budget_category_id INTEGER
     )
   `);
 
@@ -154,6 +155,44 @@ db.serialize(() => {
       badge_id INTEGER NOT NULL,
       awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(user_id, badge_id)
+    )
+  `);
+
+  // Wallet table for virtual money
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_wallets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      balance REAL DEFAULT 0,
+      currency TEXT DEFAULT 'INR',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Wallet transaction history
+  db.run(`
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Budget categories for users
+  db.run(`
+    CREATE TABLE IF NOT EXISTS budget_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      budget_amount REAL NOT NULL,
+      icon TEXT DEFAULT '💰',
+      color TEXT DEFAULT 'from-slate-500 to-slate-600',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -598,6 +637,7 @@ app.get('/api/expenses', requireAuth, (req, res) => {
           date: e.date,
           paid_by: e.paid_by,
           groupId: e.group_id || undefined,
+          budgetCategoryId: e.budget_category_id || null,
           splits: splitsByExpense[e.id] || [],
         }));
 
@@ -609,15 +649,17 @@ app.get('/api/expenses', requireAuth, (req, res) => {
 
 // POST /api/expenses
 app.post('/api/expenses', requireAuth, (req, res) => {
-  const { description, amount, date, paid_by, splits, groupId } = req.body || {};
+  const { description, amount, date, paid_by, splits, groupId, budgetCategory } = req.body || {};
 
   if (!description || !amount || !date || !paid_by || !Array.isArray(splits) || splits.length === 0) {
     return res.status(400).json({ message: 'Invalid expense data' });
   }
 
+  const budgetCategoryId = budgetCategory ? parseInt(budgetCategory, 10) : null;
+
   db.run(
-    'INSERT INTO expenses (description, amount, date, paid_by, group_id) VALUES (?, ?, ?, ?, ?)',
-    [description, amount, date, paid_by, groupId || null],
+    'INSERT INTO expenses (description, amount, date, paid_by, group_id, budget_category_id) VALUES (?, ?, ?, ?, ?, ?)',
+    [description, amount, date, paid_by, groupId || null, budgetCategoryId],
     function (err) {
       if (err) {
         console.error('Create expense error:', err);
@@ -649,15 +691,17 @@ app.post('/api/expenses', requireAuth, (req, res) => {
 // PUT /api/expenses/:id
 app.put('/api/expenses/:id', requireAuth, (req, res) => {
   const expenseId = req.params.id;
-  const { description, amount, date, paid_by, splits, groupId } = req.body || {};
+  const { description, amount, date, paid_by, splits, groupId, budgetCategory } = req.body || {};
+
+  const budgetCategoryId = budgetCategory ? parseInt(budgetCategory, 10) : null;
 
   db.run(
     `
       UPDATE expenses
-      SET description = ?, amount = ?, date = ?, paid_by = ?, group_id = ?
+      SET description = ?, amount = ?, date = ?, paid_by = ?, group_id = ?, budget_category_id = ?
       WHERE id = ?
     `,
-    [description, amount, date, paid_by, groupId || null, expenseId],
+    [description, amount, date, paid_by, groupId || null, budgetCategoryId, expenseId],
     (err) => {
       if (err) {
         console.error('Update expense error:', err);
@@ -1101,6 +1145,275 @@ app.put('/api/user', requireAuth, (req, res) => {
         res.json({ user: updated });
       });
     });
+  });
+});
+
+// ---------- WALLET ----------
+// GET /api/wallet - Get user's wallet balance
+app.get('/api/wallet', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+
+  db.get(
+    'SELECT id, balance, currency FROM user_wallets WHERE user_id = ?',
+    [userId],
+    (err, wallet) => {
+      if (err) {
+        console.error('Get wallet error:', err);
+        return res.status(500).json({ message: 'Failed to fetch wallet' });
+      }
+
+      // If no wallet exists, create one
+      if (!wallet) {
+        db.run(
+          'INSERT INTO user_wallets (user_id, balance, currency) VALUES (?, ?, ?)',
+          [userId, 0, 'INR'],
+          function (err2) {
+            if (err2) {
+              console.error('Create wallet error:', err2);
+              return res.status(500).json({ message: 'Failed to create wallet' });
+            }
+            res.json({ id: this.lastID, balance: 0, currency: 'INR' });
+          }
+        );
+      } else {
+        res.json(wallet);
+      }
+    }
+  );
+});
+
+// POST /api/wallet/add-funds - Add money to wallet
+app.post('/api/wallet/add-funds', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+  const { amount, description } = req.body || {};
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ message: 'Invalid amount' });
+  }
+
+  // First, ensure wallet exists
+  db.run(
+    'INSERT OR IGNORE INTO user_wallets (user_id, balance, currency) VALUES (?, ?, ?)',
+    [userId, 0, 'INR'],
+    () => {
+      // Update wallet balance
+      db.run(
+        'UPDATE user_wallets SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+        [amount, userId],
+        (err) => {
+          if (err) {
+            console.error('Add funds error:', err);
+            return res.status(500).json({ message: 'Failed to add funds' });
+          }
+
+          // Record transaction
+          db.run(
+            'INSERT INTO wallet_transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)',
+            [userId, 'credit', amount, description || 'Added funds'],
+            function (err2) {
+              if (err2) {
+                console.error('Record transaction error:', err2);
+                return res.status(500).json({ message: 'Failed to record transaction' });
+              }
+
+              // Return updated balance
+              db.get(
+                'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
+                [userId],
+                (err3, wallet) => {
+                  if (err3) {
+                    return res.status(500).json({ message: 'Failed to fetch wallet' });
+                  }
+                  res.json({ message: 'Funds added successfully', wallet });
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// POST /api/wallet/pay-debt - Pay debt/expense from wallet
+app.post('/api/wallet/pay-debt', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+  const { amount, friendId, description } = req.body || {};
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ message: 'Invalid amount' });
+  }
+
+  // First, ensure wallet exists
+  db.run(
+    'INSERT OR IGNORE INTO user_wallets (user_id, balance, currency) VALUES (?, ?, ?)',
+    [userId, 0, 'INR'],
+    () => {
+      // Check wallet balance
+      db.get(
+        'SELECT balance FROM user_wallets WHERE user_id = ?',
+        [userId],
+        (err, wallet) => {
+          if (err) {
+            console.error('Check balance error:', err);
+            return res.status(500).json({ message: 'Failed to check wallet balance' });
+          }
+
+          if (!wallet || wallet.balance < amount) {
+            return res.status(400).json({ message: 'Insufficient wallet balance' });
+          }
+
+          // Deduct from wallet
+          db.run(
+            'UPDATE user_wallets SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+            [amount, userId],
+            (err2) => {
+              if (err2) {
+                console.error('Deduct from wallet error:', err2);
+                return res.status(500).json({ message: 'Failed to process payment' });
+              }
+
+              // Record transaction
+              db.run(
+                'INSERT INTO wallet_transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)',
+                [userId, 'debit', amount, description || `Paid ₹${amount} debt`],
+                (err3) => {
+                  if (err3) {
+                    console.error('Record transaction error:', err3);
+                    return res.status(500).json({ message: 'Failed to record transaction' });
+                  }
+
+                  // Return updated balance
+                  db.get(
+                    'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
+                    [userId],
+                    (err4, updatedWallet) => {
+                      if (err4) {
+                        return res.status(500).json({ message: 'Failed to fetch wallet' });
+                      }
+                      res.json({ 
+                        message: 'Debt paid successfully', 
+                        wallet: updatedWallet 
+                      });
+                    }
+                  );
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// GET /api/wallet/transactions - Get transaction history
+app.get('/api/wallet/transactions', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+
+  db.all(
+    'SELECT id, type, amount, description, created_at FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20',
+    [userId],
+    (err, transactions) => {
+      if (err) {
+        console.error('Get transactions error:', err);
+        return res.status(500).json({ message: 'Failed to fetch transactions' });
+      }
+      res.json(transactions || []);
+    }
+  );
+});
+
+// ---------- BUDGET ROUTES ----------
+
+// GET /api/budgets - Get all budget categories for user
+app.get('/api/budgets', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+
+  db.all(
+    'SELECT id, name, budget_amount, icon, color, created_at FROM budget_categories WHERE user_id = ? ORDER BY created_at DESC',
+    [userId],
+    (err, budgets) => {
+      if (err) {
+        console.error('Get budgets error:', err);
+        return res.status(500).json({ message: 'Failed to fetch budgets' });
+      }
+      res.json(budgets || []);
+    }
+  );
+});
+
+// POST /api/budgets - Create a new budget category
+app.post('/api/budgets', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+  const { name, budget_amount, icon, color } = req.body;
+
+  if (!name || !budget_amount || budget_amount <= 0) {
+    return res.status(400).json({ message: 'Invalid budget data' });
+  }
+
+  const stmt = db.prepare(
+    'INSERT INTO budget_categories (user_id, name, budget_amount, icon, color) VALUES (?, ?, ?, ?, ?)'
+  );
+
+  stmt.run(userId, name, budget_amount, icon || '💰', color || 'from-slate-500 to-slate-600', function (err) {
+    if (err) {
+      console.error('Create budget error:', err);
+      return res.status(500).json({ message: 'Failed to create budget' });
+    }
+    res.status(201).json({
+      id: this.lastID,
+      user_id: userId,
+      name,
+      budget_amount,
+      icon: icon || '💰',
+      color: color || 'from-slate-500 to-slate-600'
+    });
+  });
+});
+
+// PUT /api/budgets/:id - Update a budget category
+app.put('/api/budgets/:id', requireAuth, (req, res) => {
+  const budgetId = req.params.id;
+  const userId = req.session.userId;
+  const { name, budget_amount, icon, color } = req.body;
+
+  if (!name || !budget_amount || budget_amount <= 0) {
+    return res.status(400).json({ message: 'Invalid budget data' });
+  }
+
+  const stmt = db.prepare(
+    'UPDATE budget_categories SET name = ?, budget_amount = ?, icon = ?, color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?'
+  );
+
+  stmt.run(name, budget_amount, icon, color, budgetId, userId, function (err) {
+    if (err) {
+      console.error('Update budget error:', err);
+      return res.status(500).json({ message: 'Failed to update budget' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: 'Budget not found' });
+    }
+    res.json({ message: 'Budget updated successfully' });
+  });
+});
+
+// DELETE /api/budgets/:id - Delete a budget category
+app.delete('/api/budgets/:id', requireAuth, (req, res) => {
+  const budgetId = req.params.id;
+  const userId = req.session.userId;
+
+  const stmt = db.prepare('DELETE FROM budget_categories WHERE id = ? AND user_id = ?');
+
+  stmt.run(budgetId, userId, function (err) {
+    if (err) {
+      console.error('Delete budget error:', err);
+      return res.status(500).json({ message: 'Failed to delete budget' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: 'Budget not found' });
+    }
+    res.json({ message: 'Budget deleted successfully' });
   });
 });
 

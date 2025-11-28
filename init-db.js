@@ -65,7 +65,8 @@ db.serialize(() => {
       amount REAL NOT NULL,
       date TEXT NOT NULL,
       paid_by INTEGER NOT NULL,
-      group_id INTEGER
+      group_id INTEGER,
+      budget_category_id INTEGER
     )
   `);
 
@@ -155,4 +156,3 @@ function insertPresetBadges() {
     });
   });
 }
-});

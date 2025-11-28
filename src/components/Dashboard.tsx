@@ -15,7 +15,8 @@ import {
   Receipt,
   Bell,
   Trophy,
-  Target
+  Target,
+  Wallet as WalletIcon
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '../apiClient';
@@ -288,7 +289,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </Card>
 
         {/* New Features Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <Button
             onClick={() => onNavigate('reminders')}
             className="h-20 bg-slate-800/40 hover:bg-slate-700/50 border-slate-600/30 text-slate-200 rounded-2xl justify-start border backdrop-blur-xl transition-all duration-300"
@@ -333,6 +334,22 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               <div className="text-left">
                 <p className="font-medium">Budget Boss</p>
                 <p className="text-slate-400 text-sm">75% used</p>
+              </div>
+            </div>
+          </Button>
+
+          <Button
+            onClick={() => onNavigate('wallet')}
+            className="h-20 bg-slate-800/40 hover:bg-slate-700/50 border-slate-600/30 text-slate-200 rounded-2xl justify-start border backdrop-blur-xl transition-all duration-300"
+            variant="outline"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-cyan-500/20 to-slate-500/20 rounded-xl flex items-center justify-center">
+                <WalletIcon className="h-6 w-6 text-cyan-300" />
+              </div>
+              <div className="text-left">
+                <p className="font-medium">Wallet</p>
+                <p className="text-slate-400 text-sm">Manage funds</p>
               </div>
             </div>
           </Button>

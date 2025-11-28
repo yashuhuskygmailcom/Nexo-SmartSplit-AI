@@ -217,24 +217,24 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <div className="flex items-center gap-3 p-4 border-b border-slate-800">
+    <div className="flex flex-col h-full bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 text-slate-50">
+      <div className="flex items-center gap-3 p-4 border-b border-slate-700/50">
         <Button
           variant="ghost"
           size="icon"
           onClick={onBack}
-          className="text-slate-300 hover:text-white"
+          className="text-slate-300 hover:text-white hover:bg-slate-700/50"
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-purple-500/20 flex items-center justify-center">
-            <Bot className="h-5 w-5 text-purple-400" />
+          <div className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+            <Bot className="h-5 w-5 text-blue-400" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold">Nexo AI Assistant</span>
-              <Sparkles className="h-4 w-4 text-purple-300" />
+              <span className="font-semibold text-slate-100">Nexo AI Assistant</span>
+              <Sparkles className="h-4 w-4 text-blue-300" />
             </div>
             <p className="text-xs text-slate-400">
               Ask about your balances, groups, OCR and more
@@ -245,7 +245,7 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
 
       <div className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
         {/* Chat area */}
-        <Card className="flex-1 bg-slate-900/60 border-slate-800 flex flex-col">
+        <Card className="flex-1 bg-slate-800/40 border-slate-700/50 flex flex-col backdrop-blur-xl">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-slate-200">
               Conversation
@@ -264,8 +264,8 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
                     <div
                       className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
                         msg.type === 'user'
-                          ? 'bg-blue-600 text-white rounded-br-sm'
-                          : 'bg-slate-800/80 text-slate-100 rounded-bl-sm'
+                          ? 'bg-blue-600/80 text-white rounded-br-sm'
+                          : 'bg-slate-700/60 text-slate-100 rounded-bl-sm'
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1 text-xs opacity-75">
@@ -294,12 +294,12 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="bg-slate-900/80 border-slate-700 text-slate-100"
+                className="bg-slate-700/50 border-slate-600/50 text-slate-100 placeholder:text-slate-400"
               />
               <Button
                 onClick={handleSend}
                 disabled={!input.trim() || isSending}
-                className="gap-2"
+                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
               >
                 <Send className="h-4 w-4" />
                 Send
@@ -309,15 +309,15 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
         </Card>
 
         {/* Helper panel */}
-        <Card className="w-full md:w-80 bg-slate-900/70 border-slate-800">
+        <Card className="w-full md:w-80 bg-slate-800/40 border-slate-700/50 backdrop-blur-xl">
           <CardHeader>
-            <CardTitle className="text-sm text-slate-200">
+            <CardTitle className="text-sm text-slate-100">
               What I can help with
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm text-slate-300">
             <div>
-              <p className="font-semibold mb-1">💰 Expense Management</p>
+              <p className="font-semibold mb-1 text-slate-100">💰 Expense Management</p>
               <ul className="text-slate-400 space-y-1">
                 <li>• Split bills with friends</li>
                 <li>• Track group expenses</li>
@@ -326,7 +326,7 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
               </ul>
             </div>
             <div>
-              <p className="font-semibold mb-1">📊 Financial Insights</p>
+              <p className="font-semibold mb-1 text-slate-100">📊 Financial Insights</p>
               <ul className="text-slate-400 space-y-1">
                 <li>• Who owes whom how much</li>
                 <li>• Monthly spending overview</li>
@@ -334,7 +334,7 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
               </ul>
             </div>
             <div>
-              <p className="font-semibold mb-1">🎯 Smart Features</p>
+              <p className="font-semibold mb-1 text-slate-100">🎯 Smart Features</p>
               <ul className="text-slate-400 space-y-1">
                 <li>• Payment reminders</li>
                 <li>• Group management</li>
