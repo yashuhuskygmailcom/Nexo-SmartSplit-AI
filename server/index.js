@@ -239,9 +239,9 @@ function seedPresetBadges() {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Allow frontend (Vite) on 5173 or 5174
+// Allow frontend (Vite) on 5173, 5174, 5175, 5176, 5177, 5178
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178'],
   credentials: true,
 }));
 
