@@ -7,9 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Checkbox } from './ui/checkbox';
-import { ArrowLeft, Plus, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Users, CreditCard, CheckCircle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { ExtractedData } from '../App';
+import { toast } from './ui/use-toast';
 
 // Interfaces matching the backend schema
 interface User {
@@ -206,7 +207,11 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
           } catch (walletError) {
             console.error("Error paying from wallet:", walletError);
             // Continue even if wallet payment fails - expense is already created
-            toast.error("Expense created but failed to deduct from wallet");
+            toast({
+              title: 'Warning',
+              description: 'Expense created but failed to deduct from wallet',
+              variant: 'destructive'
+            });
           }
         }
         
@@ -224,7 +229,11 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
         toast.success('Expense added successfully');
       } catch (error) {
         console.error("Error adding expense:", error);
-        toast.error("Failed to add expense");
+        toast({
+          title: 'Error',
+          description: 'Failed to add expense',
+          variant: 'destructive'
+        });
       }
     }
   };
@@ -242,6 +251,46 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
   const removeGroup = (id: number) => {
     console.log("Group deletion not yet implemented on backend");
     // setGroups(groups.filter(g => g.id !== id));
+  };
+
+  const payDebtHandler = async (friendId: number, amount: number) => {
+    if (amount <= 0) return;
+
+    try {
+      await api.payDebtFromWallet(amount, friendId, `Settled debt with ${getUsername(friendId)}`);
+      refreshData();
+      toast({
+        title: 'Success',
+        description: `Paid ₹${amount.toFixed(2)} to ${getUsername(friendId)}`,
+      });
+    } catch (error) {
+      console.error("Error paying debt:", error);
+      toast({
+        title: 'Error',
+        description: 'Failed to pay debt. Check your wallet balance.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const clearDebtHandler = async (friendId: number, amount: number) => {
+    if (amount <= 0) return;
+
+    try {
+      await api.addWalletFunds(amount, `Cleared debt from ${getUsername(friendId)}`);
+      refreshData();
+      toast({
+        title: 'Success',
+        description: `Cleared ₹${amount.toFixed(2)} from ${getUsername(friendId)}`,
+      });
+    } catch (error) {
+      console.error("Error clearing debt:", error);
+      toast({
+        title: 'Error',
+        description: 'Failed to clear debt.',
+        variant: 'destructive'
+      });
+    }
   };
 
   const filteredExpenses = useMemo(() => {
@@ -387,8 +436,8 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                             <TableBody>
                                 {filteredExpenses.map(expense => {
                                     const splitAmount = expense.amount / expense.splits.length;
-                                    const categoryName = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategory)?.name || '-';
-                                    const categoryIcon = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategory)?.icon || '';
+                                    const categoryName = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategoryId)?.name || '-';
+                                    const categoryIcon = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategoryId)?.icon || '';
                                     return (
                                     <TableRow key={expense.id} className="border-blue-400/10">
                                         <TableCell className="text-white">{expense.description}</TableCell>
@@ -415,15 +464,91 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                     <CardContent>
                         {Object.entries(balances).map(([id, balance]) => {
                             if (balance === 0) return null;
+                            const friendId = Number(id);
+                            const isCurrentUser = friendId === currentUser?.id;
+                            if (isCurrentUser) return null; // Don't show current user's balance
+
                             return (
                                 <div key={id} className="flex justify-between items-center p-4 rounded-lg bg-white/5 border border-blue-400/10 mb-2">
-                                    <span className="text-white">{getUsername(Number(id))}</span>
-                                  <span className={balance > 0 ? 'text-green-400' : 'text-red-400'}>
-                                    {balance > 0 ? `Gets back ₹${balance.toFixed(2)}` : `Owes ₹${Math.abs(balance).toFixed(2)}`}
-                                  </span>
+                                    <span className="text-white">{getUsername(friendId)}</span>
+                                    <div className="flex items-center gap-3">
+                                        <span className={balance > 0 ? 'text-green-400' : 'text-red-400'}>
+                                            {balance > 0 ? `Gets back ₹${balance.toFixed(2)}` : `Owes ₹${Math.abs(balance).toFixed(2)}`}
+                                        </span>
+                                        {balance < 0 && (
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => payDebtHandler(friendId, Math.abs(balance))}
+                                                    className="bg-green-600/80 hover:bg-green-500/80 text-white border-0"
+                                                >
+                                                    <CreditCard className="h-3 w-3 mr-1" />
+                                                    Send Money
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        // Create payment reminder for this debt
+                                                        const reminderData = {
+                                                            amount: Math.abs(balance),
+                                                            description: `Payment reminder for expense settlement with ${getUsername(friendId)}`
+                                                        };
+                                                        api.createPaymentReminder(reminderData.amount, reminderData.due_date, reminderData.description)
+                                                            .then(() => {
+                                                                toast({
+                                                                    title: 'Success',
+                                                                    description: `Payment reminder sent to ${getUsername(friendId)}`,
+                                                                });
+                                                            })
+                                                            .catch((error) => {
+                                                                console.error('Error creating reminder:', error);
+                                                                toast({
+                                                                    title: 'Error',
+                                                                    description: 'Failed to send payment reminder',
+                                                                    variant: 'destructive'
+                                                                });
+                                                            });
+                                                    }}
+                                                    className="bg-orange-600/80 hover:bg-orange-500/80 text-white border-0"
+                                                >
+                                                    Remind
+                                                </Button>
+                                            </div>
+                                        )}
+                                        {balance > 0 && (
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => clearDebtHandler(friendId, balance)}
+                                                    className="bg-blue-600/80 hover:bg-blue-500/80 text-white border-0"
+                                                >
+                                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                                    Mark Received
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        // Navigate to Payment Reminders page or show reminder dialog
+                                                        toast({
+                                                            title: 'Info',
+                                                            description: 'Use Payment Reminders page to send reminders',
+                                                        });
+                                                    }}
+                                                    className="bg-slate-600/80 hover:bg-slate-500/80 text-white border-0"
+                                                >
+                                                    Remind Later
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )
                         })}
+                        {Object.values(balances).every(b => b === 0) && (
+                            <p className="text-slate-400 text-center py-8">All debts are settled! 🎉</p>
+                        )}
                     </CardContent>
                 </Card>
 

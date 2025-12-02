@@ -1417,6 +1417,99 @@ app.delete('/api/budgets/:id', requireAuth, (req, res) => {
   });
 });
 
+// ---------- PAYMENT REMINDERS ----------
+
+// GET /api/payment-reminders - Get all payment reminders for user
+app.get('/api/payment-reminders', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+
+  db.all(
+    'SELECT id, amount, due_date, description, paid, created_at FROM payment_reminders WHERE user_id = ? ORDER BY due_date ASC',
+    [userId],
+    (err, reminders) => {
+      if (err) {
+        console.error('Get payment reminders error:', err);
+        return res.status(500).json({ message: 'Failed to fetch payment reminders' });
+      }
+      res.json(reminders || []);
+    }
+  );
+});
+
+// POST /api/payment-reminders - Create a new payment reminder
+app.post('/api/payment-reminders', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+  const { amount, due_date, description } = req.body;
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ message: 'Invalid amount' });
+  }
+
+  const stmt = db.prepare(
+    'INSERT INTO payment_reminders (user_id, amount, due_date, description) VALUES (?, ?, ?, ?)'
+  );
+
+  stmt.run(userId, amount, due_date || null, description || '', function (err) {
+    if (err) {
+      console.error('Create payment reminder error:', err);
+      return res.status(500).json({ message: 'Failed to create payment reminder' });
+    }
+    res.status(201).json({
+      id: this.lastID,
+      user_id: userId,
+      amount,
+      due_date,
+      description,
+      paid: 0
+    });
+  });
+});
+
+// PUT /api/payment-reminders/:id - Update a payment reminder
+app.put('/api/payment-reminders/:id', requireAuth, (req, res) => {
+  const reminderId = req.params.id;
+  const userId = req.session.userId;
+  const { amount, due_date, description, paid } = req.body;
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ message: 'Invalid amount' });
+  }
+
+  const stmt = db.prepare(
+    'UPDATE payment_reminders SET amount = ?, due_date = ?, description = ?, paid = ? WHERE id = ? AND user_id = ?'
+  );
+
+  stmt.run(amount, due_date || null, description || '', paid ? 1 : 0, reminderId, userId, function (err) {
+    if (err) {
+      console.error('Update payment reminder error:', err);
+      return res.status(500).json({ message: 'Failed to update payment reminder' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: 'Payment reminder not found' });
+    }
+    res.json({ message: 'Payment reminder updated successfully' });
+  });
+});
+
+// DELETE /api/payment-reminders/:id - Delete a payment reminder
+app.delete('/api/payment-reminders/:id', requireAuth, (req, res) => {
+  const reminderId = req.params.id;
+  const userId = req.session.userId;
+
+  const stmt = db.prepare('DELETE FROM payment_reminders WHERE id = ? AND user_id = ?');
+
+  stmt.run(reminderId, userId, function (err) {
+    if (err) {
+      console.error('Delete payment reminder error:', err);
+      return res.status(500).json({ message: 'Failed to delete payment reminder' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ message: 'Payment reminder not found' });
+    }
+    res.json({ message: 'Payment reminder deleted successfully' });
+  });
+});
+
 // ---------- START ----------
 app.listen(PORT, () => {
   console.log(`Server listening at http://localhost:${PORT}`);

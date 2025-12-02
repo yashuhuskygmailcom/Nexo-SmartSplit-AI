@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { ArrowLeft, Target, TrendingUp, TrendingDown, Plus, Edit2, AlertTriangle, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../api';
-import { toast } from 'sonner';
+import { toast } from './ui/use-toast';
 
 interface BudgetTrackerProps {
   onBack: () => void;
@@ -71,7 +71,11 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
       setExpenses(expensesData);
     } catch (error) {
       console.error("Error fetching data:", error);
-      toast.error("Failed to load budgets");
+      toast({
+        title: 'Error',
+        description: 'Failed to load budgets',
+        variant: 'destructive'
+      });
     } finally {
       setIsLoading(false);
     }
@@ -82,7 +86,7 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-    
+
     return expenses.reduce((total, exp) => {
       const expDate = new Date(exp.date);
       if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
@@ -92,56 +96,51 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
     }, 0);
   }, [expenses]);
 
-  // Generate graph data - daily spending for this month
+  const totalBudget = budgets.reduce((sum, b) => sum + b.budget, 0);
+  const totalSpent = thisMonthSpent; // Use actual expenses from this month
+  const remainingBudget = totalBudget - totalSpent;
+
+  // Generate graph data - cumulative spending vs budget for this month
   const graphData = useMemo(() => {
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    
+
     const dailySpending: { [key: number]: number } = {};
-    let maxSpending = 0;
-    
+
     // Initialize all days with 0
     for (let i = 1; i <= daysInMonth; i++) {
       dailySpending[i] = 0;
     }
-    
+
     // Sum expenses by day
     expenses.forEach(exp => {
       const expDate = new Date(exp.date);
       if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
         const day = expDate.getDate();
         dailySpending[day] = (dailySpending[day] || 0) + exp.amount;
-        maxSpending = Math.max(maxSpending, dailySpending[day]);
       }
     });
-    
-    // Convert to array format for chart
+
+    // Calculate cumulative spending and daily budget allocation
     const chartData = [];
-    const step = Math.max(1, Math.ceil(daysInMonth / 10)); // Show max 10 points on chart
-    
-    for (let i = 1; i <= daysInMonth; i += step) {
+    let cumulativeSpent = 0;
+    const dailyBudget = totalBudget / daysInMonth;
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      cumulativeSpent += dailySpending[i] || 0;
+      const cumulativeBudget = dailyBudget * i;
+
       chartData.push({
         name: `${i}`,
-        amount: dailySpending[i] || 0
+        spent: cumulativeSpent,
+        budget: cumulativeBudget
       });
     }
-    
-    // Always add the last day
-    if ((daysInMonth - 1) % step !== 0) {
-      chartData.push({
-        name: `${daysInMonth}`,
-        amount: dailySpending[daysInMonth] || 0
-      });
-    }
-    
-    return chartData.length > 0 ? chartData : [{ name: 'No data', amount: 0 }];
-  }, [expenses]);
 
-  const totalBudget = budgets.reduce((sum, b) => sum + b.budget, 0);
-  const totalSpent = thisMonthSpent; // Use actual expenses from this month
-  const remainingBudget = totalBudget - totalSpent;
+    return chartData.length > 0 ? chartData : [{ name: 'No data', spent: 0, budget: 0 }];
+  }, [expenses, totalBudget]);
 
   const getProgressColor = (spent: number, budget: number) => {
     const percentage = (spent / budget) * 100;
@@ -181,10 +180,17 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
         setBudgets([...budgets, newBudgetData]);
         setNewBudget({ name: '', amount: '', category: 'food' });
         setIsAddingBudget(false);
-        toast.success('Budget created successfully');
+        toast({
+          title: 'Success',
+          description: 'Budget created successfully',
+        });
       } catch (error) {
         console.error("Error creating budget:", error);
-        toast.error("Failed to create budget");
+        toast({
+          title: 'Error',
+          description: 'Failed to create budget',
+          variant: 'destructive'
+        });
       }
     }
   };
@@ -212,10 +218,17 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
       setIsEditDialogOpen(false);
       setEditingBudgetId(null);
       setEditingBudgetAmount('');
-      toast.success('Budget limit updated');
+      toast({
+        title: 'Success',
+        description: 'Budget limit updated',
+      });
     } catch (error) {
       console.error("Error updating budget:", error);
-      toast.error("Failed to update budget");
+      toast({
+        title: 'Error',
+        description: 'Failed to update budget',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -223,10 +236,17 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
     try {
       await api.deleteBudget(id);
       setBudgets(budgets.filter(b => b.id !== id));
-      toast.success('Budget deleted');
+      toast({
+        title: 'Success',
+        description: 'Budget deleted',
+      });
     } catch (error) {
       console.error("Error deleting budget:", error);
-      toast.error("Failed to delete budget");
+      toast({
+        title: 'Error',
+        description: 'Failed to delete budget',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -289,23 +309,35 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#475569" opacity={0.2} />
                   <XAxis dataKey="name" stroke="#94A3B8" fontSize={12} label={{ value: 'Day of Month', position: 'insideBottomRight', offset: -5 }} />
                   <YAxis stroke="#94A3B8" fontSize={12} label={{ value: 'Amount (₹)', angle: -90, position: 'insideLeft' }} />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'rgba(30, 41, 59, 0.95)', 
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(30, 41, 59, 0.95)',
                       border: '1px solid #475569',
                       borderRadius: '12px',
                       color: '#E2E8F0',
                       fontSize: '14px'
                     }}
-                    formatter={(value) => `₹${value.toFixed(2)}`}
+                    formatter={(value: any) => [`₹${Number(value).toFixed(2)}`, '']}
+                    labelFormatter={(label) => `Day ${label}`}
                   />
-                  <Line 
-                    type="monotone" 
-                    dataKey="amount" 
-                    stroke="#60A5FA" 
-                    strokeWidth={2}
+                  <Line
+                    type="monotone"
+                    dataKey="spent"
+                    stroke="#60A5FA"
+                    strokeWidth={3}
                     dot={{ fill: '#3B82F6', strokeWidth: 0, r: 4 }}
                     activeDot={{ r: 6, fill: '#60A5FA', strokeWidth: 0 }}
+                    name="Spent"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="budget"
+                    stroke="#10B981"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={{ fill: '#10B981', strokeWidth: 0, r: 3 }}
+                    activeDot={{ r: 5, fill: '#10B981', strokeWidth: 0 }}
+                    name="Budget"
                   />
                 </LineChart>
               </ResponsiveContainer>

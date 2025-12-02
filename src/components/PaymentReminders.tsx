@@ -1,67 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Bell, Clock, ArrowLeft, Wallet } from 'lucide-react';
 import * as api from '../api';
-import { toast } from 'sonner';
+import { toast } from './ui/use-toast';
 
 interface PaymentRemindersProps {
   onBack: () => void;
 }
 
 interface Reminder {
-  id: string;
-  friendName: string;
+  id: number;
   amount: number;
-  dueDate: string;
+  due_date: string | null;
   description: string;
-  avatar: string;
+  paid: number;
+  created_at: string;
 }
 
-const mockReminders: Reminder[] = [
-  {
-    id: '1',
-    friendName: 'Alice Johnson',
-    amount: 25.50,
-    dueDate: '2024-10-05',
-    description: 'Dinner at Italian Restaurant',
-    avatar: '👩'
-  },
-  {
-    id: '2',
-    friendName: 'Bob Smith',
-    amount: 18.75,
-    dueDate: '2024-10-03',
-    description: 'Coffee and Lunch',
-    avatar: '👨'
-  },
-  {
-    id: '3',
-    friendName: 'Carol Davis',
-    amount: 12.00,
-    dueDate: '2024-10-07',
-    description: 'Movie Tickets',
-    avatar: '👩‍🦱'
-  }
-];
-
 export function PaymentReminders({ onBack }: PaymentRemindersProps) {
-  const [payingId, setPayingId] = useState<string | null>(null);
-  const [reminders, setReminders] = useState(mockReminders);
+  const [payingId, setPayingId] = useState<number | null>(null);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchReminders();
+  }, []);
+
+  const fetchReminders = async () => {
+    try {
+      const response = await api.getPaymentReminders();
+      setReminders(response.data);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to load payment reminders',
+        variant: 'destructive'
+      });
+      console.error('Error fetching reminders:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const sendReminder = (friendName: string, amount: number) => {
     toast.success(`Reminder sent to ${friendName} for ₹${amount.toFixed(2)}`);
   };
 
-  const handlePayFromWallet = async (reminderId: string, friendName: string, amount: number) => {
+  const handlePayFromWallet = async (reminderId: number, amount: number) => {
     setPayingId(reminderId);
     try {
-      const result = await api.payDebtFromWallet(amount, undefined, `Payment reminder to ${friendName}`);
-      toast.success(`Paid ₹${amount.toFixed(2)} from wallet to ${friendName}`);
-      // Remove the paid reminder from the list
-      setReminders(reminders.filter(r => r.id !== reminderId));
+      const result = await api.payDebtFromWallet(amount, undefined, `Payment reminder`);
+      toast({
+        title: 'Success',
+        description: `Paid ₹${amount.toFixed(2)} from wallet`,
+      });
+      // Mark the reminder as paid and refresh the list
+      await api.updatePaymentReminder(reminderId, amount, undefined, undefined, true);
+      await fetchReminders();
     } catch (error) {
-      toast.error(`Failed to pay from wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast({
+        title: 'Error',
+        description: `Failed to pay from wallet: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: 'destructive'
+      });
     } finally {
       setPayingId(null);
     }
@@ -95,52 +97,65 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {mockReminders.map((reminder) => (
-                <div key={reminder.id} className="group">
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 transition-all duration-300 border border-slate-600/20">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-gradient-to-br from-blue-500/20 to-slate-500/20 rounded-xl flex items-center justify-center text-xl">
-                        {reminder.avatar}
+            {loading ? (
+              <div className="text-center py-8">
+                <p className="text-slate-400">Loading payment reminders...</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {reminders.filter(r => r.paid === 0).map((reminder) => (
+                  <div key={reminder.id} className="group">
+                    <div className="flex items-center justify-between p-4 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 transition-all duration-300 border border-slate-600/20">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500/20 to-slate-500/20 rounded-xl flex items-center justify-center text-xl">
+                          💰
+                        </div>
+                        <div>
+                          <p className="text-slate-200 font-medium">Payment Reminder</p>
+                          <p className="text-slate-400 text-sm">{reminder.description || 'No description'}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Clock className="h-3 w-3 text-slate-500" />
+                            <span className="text-slate-500 text-xs">
+                              Due: {reminder.due_date ? new Date(reminder.due_date).toLocaleDateString() : 'No due date'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-slate-200 font-medium">{reminder.friendName}</p>
-                        <p className="text-slate-400 text-sm">{reminder.description}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Clock className="h-3 w-3 text-slate-500" />
-                          <span className="text-slate-500 text-xs">Due: {reminder.dueDate}</span>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-slate-200 font-medium">₹{reminder.amount.toFixed(2)}</p>
+                          <p className="text-slate-400 text-sm">Amount due</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => handlePayFromWallet(reminder.id, reminder.amount)}
+                            disabled={payingId === reminder.id}
+                            size="sm"
+                            className="bg-gradient-to-r from-cyan-600/80 to-slate-600/80 hover:from-cyan-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg transition-all duration-300"
+                          >
+                            <Wallet className="h-3 w-3 mr-1" />
+                            {payingId === reminder.id ? 'Paying...' : 'Pay'}
+                          </Button>
+                          <Button
+                            onClick={() => sendReminder('Recipient', reminder.amount)}
+                            size="sm"
+                            className="bg-gradient-to-r from-blue-600/80 to-slate-600/80 hover:from-blue-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg transition-all duration-300"
+                          >
+                            <Bell className="h-3 w-3 mr-1" />
+                            Remind
+                          </Button>
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <p className="text-slate-200 font-medium">₹{reminder.amount.toFixed(2)}</p>
-                        <p className="text-slate-400 text-sm">Owes you</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={() => handlePayFromWallet(reminder.id, reminder.friendName, reminder.amount)}
-                          disabled={payingId === reminder.id}
-                          size="sm"
-                          className="bg-gradient-to-r from-cyan-600/80 to-slate-600/80 hover:from-cyan-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg transition-all duration-300"
-                        >
-                          <Wallet className="h-3 w-3 mr-1" />
-                          {payingId === reminder.id ? 'Paying...' : 'Pay'}
-                        </Button>
-                        <Button
-                          onClick={() => sendReminder(reminder.friendName, reminder.amount)}
-                          size="sm"
-                          className="bg-gradient-to-r from-blue-600/80 to-slate-600/80 hover:from-blue-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg transition-all duration-300"
-                        >
-                          <Bell className="h-3 w-3 mr-1" />
-                          Remind
-                        </Button>
-                      </div>
-                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+                {reminders.filter(r => r.paid === 0).length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-slate-400">No pending payment reminders</p>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -150,3 +150,20 @@ export function updateBudget(budgetId: string | number, name: string, budget_amo
 export function deleteBudget(budgetId: string | number) {
   return api.delete(`/budgets/${budgetId}`);
 }
+
+// ---------- PAYMENT REMINDERS ----------
+export function getPaymentReminders() {
+  return api.get('/payment-reminders');
+}
+
+export function createPaymentReminder(amount: number, due_date?: string, description?: string) {
+  return api.post('/payment-reminders', { amount, due_date, description });
+}
+
+export function updatePaymentReminder(reminderId: string | number, amount: number, due_date?: string, description?: string, paid?: boolean) {
+  return api.put(`/payment-reminders/${reminderId}`, { amount, due_date, description, paid });
+}
+
+export function deletePaymentReminder(reminderId: string | number) {
+  return api.delete(`/payment-reminders/${reminderId}`);
+}

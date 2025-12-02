@@ -217,133 +217,170 @@ const ChatBot: React.FC<ChatBotProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 text-slate-50">
-      <div className="flex items-center gap-3 p-4 border-b border-slate-700/50">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onBack}
-          className="text-slate-300 hover:text-white hover:bg-slate-700/50"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center">
-            <Bot className="h-5 w-5 text-blue-400" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-100">Nexo AI Assistant</span>
-              <Sparkles className="h-4 w-4 text-blue-300" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-4">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onBack}
+            className="bg-white/5 hover:bg-white/10 border-blue-400/30 text-white backdrop-blur-sm"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex items-center gap-4">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-blue-600/20 to-purple-600/20 border border-blue-400/30">
+              <Bot className="h-6 w-6 text-blue-300" />
             </div>
-            <p className="text-xs text-slate-400">
-              Ask about your balances, groups, OCR and more
-            </p>
+            <div>
+              <h1 className="text-3xl bg-gradient-to-r from-blue-300 via-blue-200 to-slate-200 bg-clip-text text-transparent">
+                Nexo AI Assistant
+              </h1>
+              <p className="text-blue-300/70">Ask about your balances, groups, OCR and more</p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden">
-        {/* Chat area */}
-        <Card className="flex-1 bg-slate-800/40 border-slate-700/50 flex flex-col backdrop-blur-xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-200">
-              Conversation
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 flex flex-col pt-0">
-            <ScrollArea className="flex-1 pr-2">
-              <div className="flex flex-col gap-3 py-2">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${
-                      msg.type === 'user' ? 'justify-end' : 'justify-start'
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
-                        msg.type === 'user'
-                          ? 'bg-blue-600/80 text-white rounded-br-sm'
-                          : 'bg-slate-700/60 text-slate-100 rounded-bl-sm'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-1 text-xs opacity-75">
-                        {msg.type === 'user' ? (
-                          <>
-                            <span>You</span>
-                            <User className="h-3 w-3" />
-                          </>
-                        ) : (
-                          <>
-                            <Bot className="h-3 w-3" />
-                            <span>Nexo AI</span>
-                          </>
-                        )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Chat Area */}
+          <div className="lg:col-span-2">
+            <Card className="bg-white/5 backdrop-blur-md border-blue-400/20 h-[600px] flex flex-col">
+              <CardHeader className="flex-shrink-0 border-b border-blue-400/20">
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Bot className="h-5 w-5 text-blue-300" />
+                  Chat with Nexo AI
+                  <span className="ml-auto text-xs text-blue-300 bg-blue-600/20 px-2 py-1 rounded-full">
+                    Online
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col p-0">
+                <ScrollArea className="flex-1 px-6">
+                  <div className="space-y-4 py-4">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex gap-3 ${
+                          msg.type === 'user' ? 'justify-end' : 'justify-start'
+                        }`}
+                      >
+                        <div
+                          className={`flex gap-3 max-w-[85%] ${
+                            msg.type === 'user' ? 'flex-row-reverse' : 'flex-row'
+                          }`}
+                        >
+                          <div className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center">
+                            {msg.type === 'user' ? (
+                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 border border-blue-400/30 flex items-center justify-center">
+                                <User className="h-5 w-5 text-white" />
+                              </div>
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 border border-purple-400/30 flex items-center justify-center">
+                                <Bot className="h-5 w-5 text-white" />
+                              </div>
+                            )}
+                          </div>
+                          <div
+                            className={`p-3 rounded-2xl ${
+                              msg.type === 'user'
+                                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white'
+                                : 'bg-white/5 text-white border border-blue-400/20'
+                            }`}
+                          >
+                            {msg.content}
+                          </div>
+                        </div>
+                        <div
+                          className={`text-xs px-2 ${
+                            msg.type === 'user' ? 'text-right' : 'text-left'
+                          } text-blue-300/50`}
+                        >
+                          {msg.timestamp.toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </div>
                       </div>
-                      <div>{msg.content}</div>
-                    </div>
+                    ))}
+                    {isSending && (
+                      <div className="flex gap-3 justify-start">
+                        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 border border-purple-400/30 flex items-center justify-center">
+                          <Bot className="h-5 w-5 text-white" />
+                        </div>
+                        <div className="p-4 rounded-2xl bg-white/5 border border-blue-400/20">
+                          <div className="flex space-x-1">
+                            <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                            <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            </ScrollArea>
+                </ScrollArea>
 
-            <div className="mt-4 flex items-center gap-2">
-              <Input
-                placeholder="Ask me something about your expenses..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="bg-slate-700/50 border-slate-600/50 text-slate-100 placeholder:text-slate-400"
-              />
-              <Button
-                onClick={handleSend}
-                disabled={!input.trim() || isSending}
-                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <Send className="h-4 w-4" />
-                Send
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                <div className="px-6 py-3 border-t border-blue-400/20 bg-white/5">
+                  <div className="flex items-center gap-3">
+                    <Input
+                      placeholder="Ask me something about your expenses..."
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      className="flex-1 bg-white/5 border-blue-400/30 text-white placeholder:text-blue-300/50 focus:border-blue-400 focus:ring-blue-400/20"
+                    />
+                    <Button
+                      onClick={handleSend}
+                      disabled={!input.trim() || isSending}
+                      className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white border-0"
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-        {/* Helper panel */}
-        <Card className="w-full md:w-80 bg-slate-800/40 border-slate-700/50 backdrop-blur-xl">
-          <CardHeader>
-            <CardTitle className="text-sm text-slate-100">
-              What I can help with
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm text-slate-300">
-            <div>
-              <p className="font-semibold mb-1 text-slate-100">💰 Expense Management</p>
-              <ul className="text-slate-400 space-y-1">
-                <li>• Split bills with friends</li>
-                <li>• Track group expenses</li>
-                <li>• Calculate settlements</li>
-                <li>• Scan receipts (OCR)</li>
-              </ul>
-            </div>
-            <div>
-              <p className="font-semibold mb-1 text-slate-100">📊 Financial Insights</p>
-              <ul className="text-slate-400 space-y-1">
-                <li>• Who owes whom how much</li>
-                <li>• Monthly spending overview</li>
-                <li>• Per-friend balances</li>
-              </ul>
-            </div>
-            <div>
-              <p className="font-semibold mb-1 text-slate-100">🎯 Smart Features</p>
-              <ul className="text-slate-400 space-y-1">
-                <li>• Payment reminders</li>
-                <li>• Group management</li>
-                <li>• Badges & leaderboard</li>
-                <li>• Friends management</li>
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
+          {/* Helper Panel */}
+          <div className="lg:col-span-1">
+            <Card className="bg-white/5 backdrop-blur-md border-blue-400/20">
+              <CardHeader>
+                <CardTitle className="text-white">What I can help with</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <h3 className="text-blue-200">💰 Expense Management</h3>
+                    <ul className="text-blue-300/70 text-sm space-y-1">
+                      <li>• Split bills with friends</li>
+                      <li>• Track group expenses</li>
+                      <li>• Calculate settlements</li>
+                      <li>• Scan receipts (OCR)</li>
+                    </ul>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-blue-200">📊 Financial Insights</h3>
+                    <ul className="text-blue-300/70 text-sm space-y-1">
+                      <li>• Who owes whom how much</li>
+                      <li>• Monthly spending overview</li>
+                      <li>• Per-friend balances</li>
+                    </ul>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-blue-200">🎯 Smart Features</h3>
+                    <ul className="text-blue-300/70 text-sm space-y-1">
+                      <li>• Payment reminders</li>
+                      <li>• Group management</li>
+                      <li>• Badges & leaderboard</li>
+                      <li>• Friends management</li>
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

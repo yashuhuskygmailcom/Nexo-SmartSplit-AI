@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { ArrowLeft, Upload, Camera, FileText, Check } from 'lucide-react';
 import { scanReceipt } from '../api';
 import { ExtractedData } from '../App';
+import { toast } from './ui/use-toast';
 
 interface OCRScannerProps {
   onBack: () => void;
@@ -52,9 +53,17 @@ export function OCRScanner({ onBack, onScan }: OCRScannerProps) {
     try {
       const response = await scanReceipt(formData);
       setExtractedData(response.data);
+      toast({
+        title: 'OCR Scan Complete',
+        description: 'Receipt data extracted successfully!',
+      });
     } catch (error) {
       console.error("Error processing receipt:", error);
-      // Optionally, show an error message to the user
+      toast({
+        title: 'OCR Scan Failed',
+        description: 'Failed to extract data from receipt. Please try again.',
+        variant: 'destructive'
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -63,6 +72,10 @@ export function OCRScanner({ onBack, onScan }: OCRScannerProps) {
   const createExpenseFromReceipt = () => {
     if (extractedData) {
       onScan(extractedData);
+      toast({
+        title: 'Expense Created',
+        description: 'Receipt data sent to expense splitter!',
+      });
     }
   };
 
