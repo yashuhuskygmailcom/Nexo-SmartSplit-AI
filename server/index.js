@@ -1,5 +1,7 @@
 // server/index.js
 const express = require('express');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
 const path = require('path');
@@ -10,6 +12,13 @@ const { createWorker } = require('tesseract.js');
 const cors = require('cors');
 
 const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176', 'http://localhost:5177', 'http://localhost:5178'],
+    credentials: true,
+  },
+});
 const PORT = process.env.PORT || 3003;
 const DB_PATH = path.join(__dirname, 'nexo_db.sqlite');
 
@@ -193,6 +202,33 @@ db.serialize(() => {
       color TEXT DEFAULT 'from-slate-500 to-slate-600',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Notifications table for notification center
+  db.run(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      data TEXT,
+      status TEXT DEFAULT 'unread',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      read_at DATETIME
+    )
+  `);
+
+  // Notification queue for processing
+  db.run(`
+    CREATE TABLE IF NOT EXISTS notification_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      notification_id INTEGER NOT NULL,
+      scheduled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      processed_at DATETIME,
+      status TEXT DEFAULT 'pending',
+      FOREIGN KEY (notification_id) REFERENCES notifications (id)
     )
   `);
 
@@ -1244,6 +1280,11 @@ app.post('/api/wallet/pay-debt', requireAuth, (req, res) => {
     return res.status(400).json({ message: 'Invalid amount' });
   }
 
+  // friendId is optional for expense payments (when paying from wallet for expenses)
+
+  // If friendId is provided, this is a debt payment to a friend
+  // If friendId is not provided, this is a general expense payment from wallet
+
   // First, ensure wallet exists
   db.run(
     'INSERT OR IGNORE INTO user_wallets (user_id, balance, currency) VALUES (?, ?, ?)',
@@ -1276,27 +1317,167 @@ app.post('/api/wallet/pay-debt', requireAuth, (req, res) => {
               // Record transaction
               db.run(
                 'INSERT INTO wallet_transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)',
-                [userId, 'debit', amount, description || `Paid ₹${amount} debt`],
+                [userId, 'debit', amount, description || 'Paid ₹' + amount + ' debt'],
                 (err3) => {
                   if (err3) {
                     console.error('Record transaction error:', err3);
                     return res.status(500).json({ message: 'Failed to record transaction' });
                   }
 
-                  // Return updated balance
-                  db.get(
-                    'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
-                    [userId],
-                    (err4, updatedWallet) => {
-                      if (err4) {
-                        return res.status(500).json({ message: 'Failed to fetch wallet' });
+                  if (friendId) {
+                    // First, check total owed to this friend
+                    db.get(`
+                      SELECT COALESCE(SUM(es.amount_owed), 0) as total_owed
+                      FROM expense_splits es
+                      JOIN expenses e ON e.id = es.expense_id
+                      WHERE e.paid_by = ? AND es.user_id = ?
+                    `, [friendId, userId], (errCheck, owedRow) => {
+                      if (errCheck) {
+                        console.error('Check owed amount error:', errCheck);
+                        return res.status(500).json({ message: 'Failed to check owed amount' });
                       }
-                      res.json({ 
-                        message: 'Debt paid successfully', 
-                        wallet: updatedWallet 
-                      });
-                    }
-                  );
+
+                      const totalOwed = owedRow.total_owed || 0;
+                      if (amount > totalOwed) {
+                        return res.status(400).json({ message: 'Cannot pay more than owed. You owe ₹' + totalOwed.toFixed(2) });
+                      }
+
+                      // Update expense_splits to reduce owed amount
+                      db.all(`
+                        SELECT es.id, es.amount_owed
+                        FROM expense_splits es
+                        JOIN expenses e ON e.id = es.expense_id
+                        WHERE e.paid_by = ? AND es.user_id = ?
+                        ORDER BY e.date ASC
+                      `, [friendId, userId], (err5, splits) => {
+                      if (err5) {
+                        console.error('Get splits error:', err5);
+                        return res.status(500).json({ message: 'Failed to get expense splits' });
+                      }
+
+                      let remaining = amount;
+                      const updates = [];
+                      for (const split of splits) {
+                        if (remaining <= 0) break;
+                        const reduce = Math.min(remaining, split.amount_owed);
+                        remaining -= reduce;
+                        const newAmount = Math.max(0, split.amount_owed - reduce);
+                        updates.push({ id: split.id, amount: newAmount });
+                      }
+
+                      if (updates.length > 0) {
+                        let completed = 0;
+                        updates.forEach(update => {
+                          db.run('UPDATE expense_splits SET amount_owed = ? WHERE id = ?', [update.amount, update.id], (err6) => {
+                            if (err6) console.error('Update split error:', err6);
+                            completed++;
+                            if (completed === updates.length) {
+                              // Return updated balance and summary
+                              db.get(
+                                'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
+                                [userId],
+                                (err4, updatedWallet) => {
+                                  if (err4) {
+                                    return res.status(500).json({ message: 'Failed to fetch wallet' });
+                                  }
+                                  // Get updated summary
+                                  const paidSql = `
+                                    SELECT COALESCE(SUM(amount), 0) AS totalPaid
+                                    FROM expenses
+                                    WHERE paid_by = ?
+                                  `;
+                                  const owedSql = `
+                                    SELECT COALESCE(SUM(amount_owed), 0) AS totalOwed
+                                    FROM expense_splits
+                                    WHERE user_id = ?
+                                  `;
+                                  db.get(paidSql, [userId], (errPaid, paidRow) => {
+                                    if (errPaid) {
+                                      console.error('Summary paid error:', errPaid);
+                                      return res.status(500).json({ message: 'Failed to get summary' });
+                                    }
+                                    db.get(owedSql, [userId], (errOwed, owedRow) => {
+                                      if (errOwed) {
+                                        console.error('Summary owed error:', errOwed);
+                                        return res.status(500).json({ message: 'Failed to get summary' });
+                                      }
+                                      res.json({
+                                        message: 'Debt paid successfully',
+                                        wallet: updatedWallet,
+                                        summary: {
+                                          totalPaid: paidRow.totalPaid || 0,
+                                          totalOwed: owedRow.totalOwed || 0,
+                                        }
+                                      });
+                                    });
+                                  });
+                                }
+                              );
+                            }
+                          });
+                        });
+                      } else {
+                        // No splits to update, return wallet and summary
+                        db.get(
+                          'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
+                          [userId],
+                          (err4, updatedWallet) => {
+                            if (err4) {
+                              return res.status(500).json({ message: 'Failed to fetch wallet' });
+                            }
+                            // Get updated summary
+                            const paidSql = `
+                              SELECT COALESCE(SUM(amount), 0) AS totalPaid
+                              FROM expenses
+                              WHERE paid_by = ?
+                            `;
+                            const owedSql = `
+                              SELECT COALESCE(SUM(amount_owed), 0) AS totalOwed
+                              FROM expense_splits
+                              WHERE user_id = ?
+                            `;
+                            db.get(paidSql, [userId], (errPaid, paidRow) => {
+                              if (errPaid) {
+                                console.error('Summary paid error:', errPaid);
+                                return res.status(500).json({ message: 'Failed to get summary' });
+                              }
+                              db.get(owedSql, [userId], (errOwed, owedRow) => {
+                                if (errOwed) {
+                                  console.error('Summary owed error:', errOwed);
+                                  return res.status(500).json({ message: 'Failed to get summary' });
+                                }
+                                res.json({
+                                  message: 'Debt paid successfully',
+                                  wallet: updatedWallet,
+                                  summary: {
+                                    totalPaid: paidRow.totalPaid || 0,
+                                    totalOwed: owedRow.totalOwed || 0,
+                                  }
+                                });
+                              });
+                            });
+                          }
+);
+}
+                    });
+                  }
+                );
+              } else {
+                    // Return updated balance
+                    db.get(
+                      'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
+                      [userId],
+                      (err4, updatedWallet) => {
+                        if (err4) {
+                          return res.status(500).json({ message: 'Failed to fetch wallet' });
+                        }
+                        res.json({
+                          message: 'Debt paid successfully',
+                          wallet: updatedWallet
+                        });
+                      }
+                    );
+                  }
                 }
               );
             }
@@ -1508,6 +1689,208 @@ app.delete('/api/payment-reminders/:id', requireAuth, (req, res) => {
     }
     res.json({ message: 'Payment reminder deleted successfully' });
   });
+});
+
+// ---------- NOTIFICATIONS ----------
+
+// GET /api/notifications - Get user's notifications
+app.get('/api/notifications', requireAuth, (req, res) => {
+  const userId = req.session.userId;
+
+  db.all(
+    'SELECT id, type, title, message, data, status, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
+    [userId],
+    (err, notifications) => {
+      if (err) {
+        console.error('Get notifications error:', err);
+        return res.status(500).json({ message: 'Failed to fetch notifications' });
+      }
+      res.json(notifications || []);
+    }
+  );
+});
+
+// POST /api/notifications - Create a notification
+app.post('/api/notifications', requireAuth, (req, res) => {
+  const { userId, type, title, message, data } = req.body;
+
+  if (!userId || !type || !title || !message) {
+    return res.status(400).json({ message: 'userId, type, title, and message are required' });
+  }
+
+  const stmt = db.prepare(
+    'INSERT INTO notifications (user_id, type, title, message, data) VALUES (?, ?, ?, ?, ?)'
+  );
+
+  stmt.run(userId, type, title, message, data ? JSON.stringify(data) : null, function (err) {
+    if (err) {
+      console.error('Create notification error:', err);
+      return res.status(500).json({ message: 'Failed to create notification' });
+    }
+
+    const notificationId = this.lastID;
+
+    // Send real-time notification via WebSocket
+    io.to(`user_${userId}`).emit('notification', {
+      id: notificationId,
+      type,
+      title,
+      message,
+      data,
+      status: 'unread',
+      created_at: new Date().toISOString(),
+    });
+
+    res.status(201).json({
+      id: notificationId,
+      user_id: userId,
+      type,
+      title,
+      message,
+      data,
+      status: 'unread'
+    });
+  });
+});
+
+// PUT /api/notifications/:id/read - Mark notification as read
+app.put('/api/notifications/:id/read', requireAuth, (req, res) => {
+  const notificationId = req.params.id;
+  const userId = req.session.userId;
+
+  db.run(
+    'UPDATE notifications SET status = ?, read_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+    ['read', notificationId, userId],
+    function (err) {
+      if (err) {
+        console.error('Mark notification read error:', err);
+        return res.status(500).json({ message: 'Failed to mark notification as read' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ message: 'Notification not found' });
+      }
+      res.json({ message: 'Notification marked as read' });
+    }
+  );
+});
+
+// POST /api/notifications/send-payment-reminder - Send payment reminder to user
+app.post('/api/notifications/send-payment-reminder', requireAuth, (req, res) => {
+  const { targetUserId, amount, description } = req.body;
+  const senderId = req.session.userId;
+
+  if (!targetUserId || !amount) {
+    return res.status(400).json({ message: 'targetUserId and amount are required' });
+  }
+
+  // Get sender's name
+  db.get('SELECT username FROM users WHERE id = ?', [senderId], (err, sender) => {
+    if (err) {
+      console.error('Get sender error:', err);
+      return res.status(500).json({ message: 'Failed to get sender info' });
+    }
+
+    const title = 'Payment Reminder';
+    const message = sender.username + ' is reminding you to pay ₹' + amount.toFixed(2) + (description ? ' for ' + description : '');
+
+    // Create notification
+    const stmt = db.prepare(
+      'INSERT INTO notifications (user_id, type, title, message, data) VALUES (?, ?, ?, ?, ?)'
+    );
+
+    stmt.run(targetUserId, 'payment_reminder', title, message, JSON.stringify({ amount, senderId, description }), function (err2) {
+      if (err2) {
+        console.error('Create payment reminder error:', err2);
+        return res.status(500).json({ message: 'Failed to send payment reminder' });
+      }
+
+      const notificationId = this.lastID;
+
+      // Send real-time notification
+      io.to(`user_${targetUserId}`).emit('notification', {
+        id: notificationId,
+        type: 'payment_reminder',
+        title,
+        message,
+        data: { amount, senderId, description },
+        status: 'unread',
+        created_at: new Date().toISOString(),
+      });
+
+      res.json({ message: 'Payment reminder sent successfully' });
+    });
+  });
+});
+
+// POST /api/notifications/send-all-reminders - Send reminders to all users with pending payments
+app.post('/api/notifications/send-all-reminders', requireAuth, (req, res) => {
+  const senderId = req.session.userId;
+
+  // Get all users who owe money to the sender
+  db.all(
+    `SELECT DISTINCT es.user_id as target_user_id, SUM(es.amount_owed) as total_owed, u.username as sender_name
+     FROM expense_splits es
+     JOIN expenses e ON e.id = es.expense_id
+     JOIN users u ON u.id = ?
+     WHERE e.paid_by = ? AND es.amount_owed > 0
+     GROUP BY es.user_id`,
+    [senderId, senderId],
+    (err, debtors) => {
+      if (err) {
+        console.error('Get all debtors error:', err);
+        return res.status(500).json({ message: 'Failed to get debtors' });
+      }
+
+      if (debtors.length === 0) {
+        return res.json({ message: 'No pending payments to remind' });
+      }
+
+      let sentCount = 0;
+      const errors = [];
+
+      debtors.forEach((debtor) => {
+        const title = 'Payment Reminder';
+        const message = debtor.sender_name + ' is reminding you to pay ₹' + debtor.total_owed.toFixed(2);
+        const stmt = db.prepare(
+          'INSERT INTO notifications (user_id, type, title, message, data) VALUES (?, ?, ?, ?, ?)'
+        );
+
+        stmt.run(debtor.target_user_id, 'payment_reminder', title, message, JSON.stringify({
+          amount: debtor.total_owed,
+          senderId,
+          description: 'Outstanding balance'
+        }), function (err2) {
+          if (err2) {
+            console.error('Create bulk reminder error:', err2);
+            errors.push(`Failed to send to user ${debtor.target_user_id}`);
+          } else {
+            sentCount++;
+
+            // Send real-time notification
+            io.to(`user_${debtor.target_user_id}`).emit('notification', {
+              id: this.lastID,
+              type: 'payment_reminder',
+              title,
+              message,
+              data: { amount: debtor.total_owed, senderId, description: 'Outstanding balance' },
+              status: 'unread',
+              created_at: new Date().toISOString(),
+            });
+          }
+
+          // Send response when all reminders are processed
+          if (sentCount + errors.length === debtors.length) {
+            res.json({
+              message: `Sent ${sentCount} reminders${errors.length > 0 ? ', ' + errors.length + ' failed' : ''}`,
+              sent: sentCount,
+              failed: errors.length,
+              errors: errors.length > 0 ? errors : undefined
+            });
+          }
+        });
+      });
+    }
+  );
 });
 
 // ---------- START ----------

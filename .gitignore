@@ -1,2 +1,6 @@
 node_modules
 server/nexo_db.sqlite
+nexo_db.sqlite
+build/
+*.db
+*.sqlite

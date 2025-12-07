@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ArrowLeft, Plus, Send, History, Wallet as WalletIcon } from 'lucide-react';
 import { getWallet, addWalletFunds, getWalletTransactions } from '../api';
+import * as api from '../api';
 import { toast } from './ui/use-toast';
 
 interface WalletProps {
@@ -18,6 +19,14 @@ interface Transaction {
   created_at: string;
 }
 
+interface PaymentSummary {
+  friend_id: number;
+  friend_username: string;
+  amount_owed: number;
+  amount_owed_to: number;
+  net_balance: number;
+}
+
 export function Wallet({ onBack }: WalletProps) {
   const [balance, setBalance] = useState(0);
   const [currency, setCurrency] = useState('INR');
@@ -25,10 +34,12 @@ export function Wallet({ onBack }: WalletProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
+  const [paymentSummary, setPaymentSummary] = useState<PaymentSummary[]>([]);
 
   useEffect(() => {
     fetchWallet();
     fetchTransactions();
+    fetchPaymentSummary();
   }, []);
 
   const fetchWallet = async () => {
@@ -55,6 +66,56 @@ export function Wallet({ onBack }: WalletProps) {
       setTransactions(res.data || []);
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
+    }
+  };
+
+  const fetchPaymentSummary = async () => {
+    try {
+      const [friendsRes, expensesRes] = await Promise.all([
+        api.getFriends(),
+        api.getExpenses()
+      ]);
+
+      const friends = friendsRes.data || [];
+      const expenses = expensesRes.data || [];
+
+      // Calculate per-friend balances
+      const friendBalances: { [key: number]: PaymentSummary } = {};
+
+      friends.forEach((friend: any) => {
+        friendBalances[friend.id] = {
+          friend_id: friend.id,
+          friend_username: friend.username,
+          amount_owed: 0,
+          amount_owed_to: 0,
+          net_balance: 0
+        };
+      });
+
+      // Calculate balances from expenses
+      expenses.forEach((expense: any) => {
+        expense.splits.forEach((split: any) => {
+          if (split.user_id !== undefined && friendBalances[split.user_id]) {
+            if (expense.paid_by === split.user_id) {
+              // This friend paid, so others owe them
+              friendBalances[split.user_id].amount_owed_to += split.amount_owed;
+            } else {
+              // This friend owes money
+              friendBalances[split.user_id].amount_owed += split.amount_owed;
+            }
+          }
+        });
+      });
+
+      // Calculate net balances
+      const summary = Object.values(friendBalances).map(friend => ({
+        ...friend,
+        net_balance: friend.amount_owed_to - friend.amount_owed
+      })).filter(friend => friend.amount_owed > 0 || friend.amount_owed_to > 0);
+
+      setPaymentSummary(summary);
+    } catch (error) {
+      console.error('Failed to fetch payment summary:', error);
     }
   };
 
@@ -176,6 +237,49 @@ export function Wallet({ onBack }: WalletProps) {
           </CardContent>
         </Card>
 
+        {/* Payment Summary */}
+        <Card className="bg-slate-800/40 backdrop-blur-xl border-slate-600/30 shadow-2xl">
+          <CardHeader>
+            <CardTitle className="text-slate-200 flex items-center gap-3 font-light">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500/20 to-slate-500/20 rounded-lg flex items-center justify-center">
+                <Send className="h-4 w-4 text-blue-300" />
+              </div>
+              Payment Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {paymentSummary.length === 0 ? (
+              <p className="text-slate-400 text-center py-8">No payment data available</p>
+            ) : (
+              <div className="space-y-4">
+                {paymentSummary.map((summary, index) => (
+                  <div
+                    key={index}
+                    className="p-4 rounded-xl bg-slate-700/30 border border-slate-600/20"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-slate-200 font-medium">{summary.friend_username}</h4>
+                      <span className={`text-lg font-medium ${summary.net_balance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {summary.net_balance >= 0 ? '+' : ''}₹{summary.net_balance.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-slate-400">You owe</p>
+                        <p className="text-red-400 font-medium">₹{summary.amount_owed.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400">Owed to you</p>
+                        <p className="text-green-400 font-medium">₹{summary.amount_owed_to.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Transaction History */}
         <Card className="bg-slate-800/40 backdrop-blur-xl border-slate-600/30 shadow-2xl">
           <CardHeader>
@@ -205,9 +309,9 @@ export function Wallet({ onBack }: WalletProps) {
                         }`}
                       >
                         {txn.type === 'credit' ? (
-                          <Plus className={`h-5 w-5 ${txn.type === 'credit' ? 'text-green-400' : 'text-red-400'}`} />
+                          <Plus className={`h-5 w-5 text-green-400`} />
                         ) : (
-                          <Send className={`h-5 w-5 ${txn.type === 'credit' ? 'text-green-400' : 'text-red-400'}`} />
+                          <Send className={`h-5 w-5 text-red-400`} />
                         )}
                       </div>
                       <div>

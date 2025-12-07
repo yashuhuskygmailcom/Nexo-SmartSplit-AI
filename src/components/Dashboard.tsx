@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '../apiClient';
+import * as api from '../api';
 
 interface DashboardProps {
  onNavigate: (page: Page) => void;
@@ -49,24 +50,50 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [summary, setSummary] = useState({ totalPaid: 0, totalOwed: 0 });
   const [spendingData, setSpendingData] = useState<any[]>([]);
+  const [pendingRemindersCount, setPendingRemindersCount] = useState(0);
+  const [budgets, setBudgets] = useState<any[]>([]);
+  const [budgetUsagePercentage, setBudgetUsagePercentage] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     const fetchData = async () => {
       try {
-        const [friendsRes, expensesRes, summaryRes] = await Promise.all([
+        const [friendsRes, expensesRes, summaryRes, budgetsRes, remindersRes] = await Promise.all([
           apiClient.get('/friends'),
           apiClient.get('/expenses'),
           apiClient.get('/expenses/summary'),
+          api.getBudgets(),
+          api.getPaymentReminders(),
         ]);
         if (mounted) {
           setFriends(friendsRes.data || []);
           setExpenses(expensesRes.data || []);
           setSummary(summaryRes.data || { totalPaid: 0, totalOwed: 0 });
-          
+          setBudgets(budgetsRes.data || []);
+
           // Compute weekly spending data from expenses
           const weeklyData = computeWeeklySpending(expensesRes.data || []);
           setSpendingData(weeklyData);
+
+          // Calculate budget usage percentage
+          const budgetsData = budgetsRes.data || [];
+          const expensesData = expensesRes.data || [];
+          const totalBudget = budgetsData.reduce((sum: number, b: any) => sum + b.budget_amount, 0);
+          const thisMonthSpent = expensesData.reduce((total: number, exp: any) => {
+            const expDate = new Date(exp.date);
+            const now = new Date();
+            if (expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear()) {
+              return total + exp.amount;
+            }
+            return total;
+          }, 0);
+          const usagePercentage = totalBudget > 0 ? Math.round((thisMonthSpent / totalBudget) * 100) : 0;
+          setBudgetUsagePercentage(usagePercentage);
+
+          // Set pending reminders count
+          const remindersData = remindersRes.data || [];
+          const pendingCount = remindersData.filter((r: any) => Number(r.paid) === 0).length;
+          setPendingRemindersCount(pendingCount);
         }
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
@@ -289,7 +316,23 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         </Card>
 
         {/* New Features Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+          <Button
+            onClick={() => onNavigate('notifications')}
+            className="h-20 bg-slate-800/40 hover:bg-slate-700/50 border-slate-600/30 text-slate-200 rounded-2xl justify-start border backdrop-blur-xl transition-all duration-300"
+            variant="outline"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500/20 to-slate-500/20 rounded-xl flex items-center justify-center">
+                <Bell className="h-6 w-6 text-blue-300" />
+              </div>
+              <div className="text-left">
+                <p className="font-medium">Notifications</p>
+                <p className="text-slate-400 text-sm">View alerts</p>
+              </div>
+            </div>
+          </Button>
+
           <Button
             onClick={() => onNavigate('reminders')}
             className="h-20 bg-slate-800/40 hover:bg-slate-700/50 border-slate-600/30 text-slate-200 rounded-2xl justify-start border backdrop-blur-xl transition-all duration-300"
@@ -301,11 +344,11 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               </div>
               <div className="text-left">
                 <p className="font-medium">Payment Reminders</p>
-                <p className="text-slate-400 text-sm">3 pending</p>
+                <p className="text-slate-400 text-sm">{pendingRemindersCount} pending</p>
               </div>
             </div>
           </Button>
-          
+
           <Button
             onClick={() => onNavigate('badges')}
             className="h-20 bg-slate-800/40 hover:bg-slate-700/50 border-slate-600/30 text-slate-200 rounded-2xl justify-start border backdrop-blur-xl transition-all duration-300"
@@ -321,7 +364,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               </div>
             </div>
           </Button>
-          
+
           <Button
             onClick={() => onNavigate('budget')}
             className="h-20 bg-slate-800/40 hover:bg-slate-700/50 border-slate-600/30 text-slate-200 rounded-2xl justify-start border backdrop-blur-xl transition-all duration-300"
@@ -333,7 +376,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               </div>
               <div className="text-left">
                 <p className="font-medium">Budget Boss</p>
-                <p className="text-slate-400 text-sm">75% used</p>
+                <p className="text-slate-400 text-sm">{budgetUsagePercentage}% used</p>
               </div>
             </div>
           </Button>

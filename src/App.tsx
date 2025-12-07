@@ -10,10 +10,11 @@ import { PaymentReminders } from './components/PaymentReminders';
 import { BadgesLeaderboard } from './components/BadgesLeaderboard';
 import { BudgetTracker } from './components/BudgetTracker';
 import { Wallet } from './components/Wallet';
+import { NotificationInbox } from './components/NotificationInbox';
 import { Toaster } from './components/ui/toaster';
 import { checkSession } from './api';
 
-export type Page = 'auth' | 'dashboard' | 'splitter' | 'friends' | 'scanner' | 'chatbot' | 'profile' | 'reminders' | 'badges' | 'budget' | 'wallet';
+export type Page = 'auth' | 'dashboard' | 'splitter' | 'friends' | 'scanner' | 'chatbot' | 'profile' | 'reminders' | 'badges' | 'budget' | 'wallet' | 'notifications';
 
 export interface ExtractedData {
   merchantName: string;
@@ -103,6 +104,8 @@ export default function App() {
         return <BudgetTracker onBack={navigateBack} />;
       case 'wallet':
         return <Wallet onBack={navigateBack} />;
+      case 'notifications':
+        return <NotificationInbox onClose={navigateBack} />;
       default:
         return <Dashboard onNavigate={navigateTo} />;
     }

@@ -21,7 +21,8 @@ const tables = [
   'friends',
   'payment_reminders',
   'badges',
-  'user_badges'
+  'user_badges',
+  'budget_categories'
 ];
 
 function viewAllData() {

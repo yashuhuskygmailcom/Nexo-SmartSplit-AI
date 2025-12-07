@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Progress } from './ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
-import { ArrowLeft, Target, TrendingUp, TrendingDown, Plus, Edit2, AlertTriangle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Target, TrendingUp, TrendingDown, Plus, Edit2, AlertTriangle, Trash2, RefreshCw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as api from '../api';
 import { toast } from './ui/use-toast';
@@ -20,6 +20,17 @@ interface BudgetCategory {
   spent: number;
   icon: string;
   color: string;
+}
+
+interface Expense {
+  id: number;
+  description: string;
+  amount: number;
+  date: string;
+  paid_by: number;
+  splits: { user_id: number; amount_owed: number }[];
+  groupId?: number;
+  budgetCategoryId: number | null;
 }
 
 export function BudgetTracker({ onBack }: BudgetTrackerProps) {
@@ -46,11 +57,11 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
       
       // Transform budgets to include spent from expenses
       const budgetsData = budgetsRes.data || [];
-      const expensesData = expensesRes.data || [];
-      
+      const expensesData: Expense[] = expensesRes.data || [];
+
       const transformedBudgets = budgetsData.map((b: any) => {
         // Calculate spent for this budget from expenses with matching budget_category_id
-        const spent = expensesData.reduce((total: number, exp: any) => {
+        const spent = expensesData.reduce((total: number, exp: Expense) => {
           if (exp.budgetCategoryId === b.id) {
             return total + exp.amount;
           }
@@ -115,7 +126,7 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
     }
 
     // Sum expenses by day
-    expenses.forEach(exp => {
+    expenses.forEach((exp: Expense) => {
       const expDate = new Date(exp.date);
       if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
         const day = expDate.getDate();
@@ -261,6 +272,13 @@ export function BudgetTracker({ onBack }: BudgetTrackerProps) {
         </div>
 
         <Card className="bg-slate-800/40 backdrop-blur-xl border-slate-600/30 shadow-2xl">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-slate-200 font-light tracking-wide">Budget Overview</CardTitle>
+            <Button onClick={fetchAllData} size="sm" className="bg-gradient-to-r from-blue-600/80 to-slate-600/80 hover:from-blue-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg">
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Refresh
+            </Button>
+          </CardHeader>
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="text-center p-4 bg-gradient-to-br from-blue-500/10 to-slate-500/10 rounded-xl border border-blue-500/20">

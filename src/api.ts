@@ -167,3 +167,16 @@ export function updatePaymentReminder(reminderId: string | number, amount: numbe
 export function deletePaymentReminder(reminderId: string | number) {
   return api.delete(`/payment-reminders/${reminderId}`);
 }
+
+// ---------- NOTIFICATIONS ----------
+export function getNotifications() {
+  return api.get('/notifications');
+}
+
+export function markNotificationAsRead(notificationId: number) {
+  return api.put(`/notifications/${notificationId}/read`);
+}
+
+export function sendAllReminders() {
+  return api.post('/notifications/send-all-reminders');
+}

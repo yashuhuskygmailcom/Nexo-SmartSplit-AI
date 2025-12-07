@@ -27,6 +27,7 @@ interface Expense {
   paid_by: number; // This is a user ID
   splits: { user_id: number; amount_owed: number }[];
   groupId?: number;
+  budgetCategoryId: number | null;
 }
 
 interface Group {
@@ -54,7 +55,7 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
   const [newExpense, setNewExpense] = useState({
     description: '',
     amount: '',
-    paidBy: '', 
+    paidBy: '',
     participantIds: [] as number[],
     groupId: '',
     payFromWallet: false,
@@ -69,6 +70,7 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
   const [showParticipantDialog, setShowParticipantDialog] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [selectedGroupFilter, setSelectedGroupFilter] = useState('all');
+  const [processingPayments, setProcessingPayments] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     fetchInitialData();
@@ -226,7 +228,10 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
           budgetCategory: '',
         });
         setInitialData(null);
-        toast.success('Expense added successfully');
+        toast({
+          title: 'Success',
+          description: 'Expense added successfully',
+        });
       } catch (error) {
         console.error("Error adding expense:", error);
         toast({
@@ -254,7 +259,9 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
   };
 
   const payDebtHandler = async (friendId: number, amount: number) => {
-    if (amount <= 0) return;
+    if (amount <= 0 || processingPayments.has(friendId)) return;
+
+    setProcessingPayments(prev => new Set(prev).add(friendId));
 
     try {
       await api.payDebtFromWallet(amount, friendId, `Settled debt with ${getUsername(friendId)}`);
@@ -270,11 +277,19 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
         description: 'Failed to pay debt. Check your wallet balance.',
         variant: 'destructive'
       });
+    } finally {
+      setProcessingPayments(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(friendId);
+        return newSet;
+      });
     }
   };
 
   const clearDebtHandler = async (friendId: number, amount: number) => {
-    if (amount <= 0) return;
+    if (amount <= 0 || processingPayments.has(friendId)) return;
+
+    setProcessingPayments(prev => new Set(prev).add(friendId));
 
     try {
       await api.addWalletFunds(amount, `Cleared debt from ${getUsername(friendId)}`);
@@ -289,6 +304,12 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
         title: 'Error',
         description: 'Failed to clear debt.',
         variant: 'destructive'
+      });
+    } finally {
+      setProcessingPayments(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(friendId);
+        return newSet;
       });
     }
   };
@@ -305,22 +326,26 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
 
     filteredExpenses.forEach(expense => {
         const payerId = expense.paid_by;
+        const currentUserId = currentUser?.id;
 
-        // The person who paid gets credit
-        if (balances[payerId] !== undefined) {
-            balances[payerId] += expense.amount;
-        }
-
-        // The participants owe money
-        expense.splits.forEach(split => {
-            if (balances[split.user_id] !== undefined) {
-                balances[split.user_id] -= split.amount_owed;
+        if (payerId === currentUserId) {
+            // Current user paid, so participants owe him money
+            expense.splits.forEach(split => {
+                if (balances[split.user_id] !== undefined) {
+                    balances[split.user_id] += split.amount_owed;
+                }
+            });
+        } else if (expense.splits.some(split => split.user_id === currentUserId)) {
+            // Current user is a participant, so he owes the payer money
+            const currentUserSplit = expense.splits.find(split => split.user_id === currentUserId);
+            if (currentUserSplit && balances[payerId] !== undefined) {
+                balances[payerId] -= currentUserSplit.amount_owed;
             }
-        });
+        }
     });
 
     return balances;
-  }, [filteredExpenses, friends]);
+  }, [filteredExpenses, friends, currentUser]);
 
   const totalAmount = filteredExpenses.reduce((sum, exp) => sum + exp.amount, 0);
 
@@ -436,8 +461,8 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                             <TableBody>
                                 {filteredExpenses.map(expense => {
                                     const splitAmount = expense.amount / expense.splits.length;
-                                    const categoryName = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategoryId)?.name || '-';
-                                    const categoryIcon = budgetCategories.find(bc => bc.id.toString() === (expense as any).budgetCategoryId)?.icon || '';
+                                    const categoryName = budgetCategories.find(bc => bc.id.toString() === expense.budgetCategoryId?.toString())?.name || '-';
+                                    const categoryIcon = budgetCategories.find(bc => bc.id.toString() === expense.budgetCategoryId?.toString())?.icon || '';
                                     return (
                                     <TableRow key={expense.id} className="border-blue-400/10">
                                         <TableCell className="text-white">{expense.description}</TableCell>
@@ -492,6 +517,7 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                                                         // Create payment reminder for this debt
                                                         const reminderData = {
                                                             amount: Math.abs(balance),
+                                                            due_date: undefined,
                                                             description: `Payment reminder for expense settlement with ${getUsername(friendId)}`
                                                         };
                                                         api.createPaymentReminder(reminderData.amount, reminderData.due_date, reminderData.description)
@@ -521,10 +547,11 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                                                 <Button
                                                     size="sm"
                                                     onClick={() => clearDebtHandler(friendId, balance)}
-                                                    className="bg-blue-600/80 hover:bg-blue-500/80 text-white border-0"
+                                                    disabled={processingPayments.has(friendId)}
+                                                    className="bg-blue-600/80 hover:bg-blue-500/80 text-white border-0 disabled:opacity-50"
                                                 >
                                                     <CheckCircle className="h-3 w-3 mr-1" />
-                                                    Mark Received
+                                                    {processingPayments.has(friendId) ? 'Processing...' : 'Mark Received'}
                                                 </Button>
                                                 <Button
                                                     size="sm"

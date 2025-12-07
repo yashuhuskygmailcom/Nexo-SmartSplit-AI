@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Bell, Clock, ArrowLeft, Wallet } from 'lucide-react';
+import { Bell, Clock, ArrowLeft, Wallet, RefreshCw } from 'lucide-react';
 import * as api from '../api';
 import { toast } from './ui/use-toast';
 
@@ -44,7 +44,10 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
   };
 
   const sendReminder = (friendName: string, amount: number) => {
-    toast.success(`Reminder sent to ${friendName} for ₹${amount.toFixed(2)}`);
+    toast({
+      title: 'Success',
+      description: `Reminder sent to ${friendName} for ₹${amount.toFixed(2)}`,
+    });
   };
 
   const handlePayFromWallet = async (reminderId: number, amount: number) => {
@@ -69,6 +72,23 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
     }
   };
 
+  const handleSendAllReminders = async () => {
+    try {
+      const response = await api.sendAllReminders();
+      toast({
+        title: 'Success',
+        description: `Sent ${response.data.sent} reminders successfully`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to send all reminders',
+        variant: 'destructive'
+      });
+      console.error('Error sending all reminders:', error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 p-4">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -88,13 +108,17 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
 
         {/* Pending Reminders */}
         <Card className="bg-slate-800/40 backdrop-blur-xl border-slate-600/30 shadow-2xl">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-slate-200 flex items-center gap-3 font-light">
               <div className="w-8 h-8 bg-gradient-to-br from-blue-500/20 to-slate-500/20 rounded-lg flex items-center justify-center">
                 <Bell className="h-4 w-4 text-blue-300" />
               </div>
               Pending Payments
             </CardTitle>
+            <Button onClick={fetchReminders} size="sm" className="bg-gradient-to-r from-blue-600/80 to-slate-600/80 hover:from-blue-500/80 hover:to-slate-500/80 text-white border-0 rounded-lg">
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Refresh
+            </Button>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -103,7 +127,7 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
               </div>
             ) : (
               <div className="space-y-4">
-                {reminders.filter(r => r.paid === 0).map((reminder) => (
+                {reminders.filter(r => Number(r.paid) === 0).map((reminder) => (
                   <div key={reminder.id} className="group">
                     <div className="flex items-center justify-between p-4 rounded-xl bg-slate-700/30 hover:bg-slate-700/50 transition-all duration-300 border border-slate-600/20">
                       <div className="flex items-center gap-4">
@@ -165,7 +189,11 @@ export function PaymentReminders({ onBack }: PaymentRemindersProps) {
             <CardTitle className="text-slate-200 font-light">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button className="h-16 bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/30 text-slate-200 rounded-xl justify-start" variant="outline">
+            <Button
+              onClick={handleSendAllReminders}
+              className="h-16 bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/30 text-slate-200 rounded-xl justify-start"
+              variant="outline"
+            >
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-gradient-to-br from-orange-500/20 to-slate-500/20 rounded-lg flex items-center justify-center">
                   <Bell className="h-4 w-4 text-orange-300" />
