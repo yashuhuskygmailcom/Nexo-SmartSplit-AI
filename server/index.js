@@ -306,9 +306,12 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Just to avoid "Cannot GET /"
+// Serve static files from the React app build directory
+app.use(express.static(path.join(__dirname, '../build')));
+
+// Serve React app on root route
 app.get('/', (req, res) => {
-  res.send('Nexo backend is running ✅');
+  res.sendFile(path.join(__dirname, '../build/index.html'));
 });
 
 // ---------- AUTH ROUTES ----------
@@ -1893,7 +1896,12 @@ app.post('/api/notifications/send-all-reminders', requireAuth, (req, res) => {
   );
 });
 
+// Catch all handler: send back React's index.html file for any non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../build/index.html'));
+});
+
 // ---------- START ----------
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server listening at http://localhost:${PORT}`);
 });
