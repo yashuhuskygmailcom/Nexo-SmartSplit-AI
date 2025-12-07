@@ -19,7 +19,7 @@ const io = new Server(server, {
     credentials: true,
   },
 });
-const PORT = process.env.PORT || 3003;
+const PORT = process.env.PORT || 10000;
 const DB_PATH = path.join(__dirname, 'nexo_db.sqlite');
 
 // ---------- DB SETUP ----------
