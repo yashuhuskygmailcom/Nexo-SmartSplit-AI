@@ -177,6 +177,10 @@ export function markNotificationAsRead(notificationId: number) {
   return api.put(`/notifications/${notificationId}/read`);
 }
 
+export function sendPaymentReminder(targetUserId: number, amount: number, description?: string) {
+  return api.post('/notifications/send-payment-reminder', { targetUserId, amount, description });
+}
+
 export function sendAllReminders() {
   return api.post('/notifications/send-all-reminders');
 }

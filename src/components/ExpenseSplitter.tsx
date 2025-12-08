@@ -497,51 +497,9 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                                 <div key={id} className="flex justify-between items-center p-4 rounded-lg bg-white/5 border border-blue-400/10 mb-2">
                                     <span className="text-white">{getUsername(friendId)}</span>
                                     <div className="flex items-center gap-3">
-                                        <span className={balance > 0 ? 'text-green-400' : 'text-red-400'}>
-                                            {balance > 0 ? `Gets back ₹${balance.toFixed(2)}` : `Owes ₹${Math.abs(balance).toFixed(2)}`}
+                                        <span className={balance > 0 ? 'text-red-400' : 'text-green-400'}>
+                                            {balance > 0 ? `Owes ₹${balance.toFixed(2)}` : `Gets back ₹${Math.abs(balance).toFixed(2)}`}
                                         </span>
-                                        {balance < 0 && (
-                                            <div className="flex gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    onClick={() => payDebtHandler(friendId, Math.abs(balance))}
-                                                    className="bg-green-600/80 hover:bg-green-500/80 text-white border-0"
-                                                >
-                                                    <CreditCard className="h-3 w-3 mr-1" />
-                                                    Send Money
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        // Create payment reminder for this debt
-                                                        const reminderData = {
-                                                            amount: Math.abs(balance),
-                                                            due_date: undefined,
-                                                            description: `Payment reminder for expense settlement with ${getUsername(friendId)}`
-                                                        };
-                                                        api.createPaymentReminder(reminderData.amount, reminderData.due_date, reminderData.description)
-                                                            .then(() => {
-                                                                toast({
-                                                                    title: 'Success',
-                                                                    description: `Payment reminder sent to ${getUsername(friendId)}`,
-                                                                });
-                                                            })
-                                                            .catch((error) => {
-                                                                console.error('Error creating reminder:', error);
-                                                                toast({
-                                                                    title: 'Error',
-                                                                    description: 'Failed to send payment reminder',
-                                                                    variant: 'destructive'
-                                                                });
-                                                            });
-                                                    }}
-                                                    className="bg-orange-600/80 hover:bg-orange-500/80 text-white border-0"
-                                                >
-                                                    Remind
-                                                </Button>
-                                            </div>
-                                        )}
                                         {balance > 0 && (
                                             <div className="flex gap-2">
                                                 <Button
@@ -552,6 +510,44 @@ export function ExpenseSplitter({ onBack, initialData, setInitialData }: { onBac
                                                 >
                                                     <CheckCircle className="h-3 w-3 mr-1" />
                                                     {processingPayments.has(friendId) ? 'Processing...' : 'Mark Received'}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        // Send payment reminder to the friend who owes money
+                                                        const description = `Payment reminder for expense settlement with ${getUsername(currentUser?.id || 0)}`;
+                                                        api.sendPaymentReminder(friendId, balance, description)
+                                                            .then(() => {
+                                                                toast({
+                                                                    title: 'Success',
+                                                                    description: `Payment reminder sent to ${getUsername(friendId)}`,
+                                                                });
+                                                            })
+                                                            .catch((error) => {
+                                                                console.error('Error sending reminder:', error);
+                                                                toast({
+                                                                    title: 'Error',
+                                                                    description: 'Failed to send payment reminder',
+                                                                    variant: 'destructive'
+                                                                });
+                                                            });
+                                                    }}
+                                                    className="bg-orange-600/80 hover:bg-orange-500/80 text-white border-0"
+                                                >
+                                                    Remind Payment
+                                                </Button>
+                                            </div>
+                                        )}
+                                        {balance < 0 && (
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => payDebtHandler(friendId, Math.abs(balance))}
+                                                    className="bg-green-600/80 hover:bg-green-500/80 text-white border-0"
+                                                >
+                                                    <CreditCard className="h-3 w-3 mr-1" />
+                                                    Send Money
                                                 </Button>
                                                 <Button
                                                     size="sm"

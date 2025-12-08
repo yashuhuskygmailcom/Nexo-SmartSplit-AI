@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Bell, Check, ArrowLeft, CheckCheck } from 'lucide-react';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { getNotifications, markNotificationAsRead } from '../api';
+import { getNotifications, markNotificationAsRead, checkSession } from '../api';
 
 interface Notification {
   id: number;
@@ -24,9 +24,23 @@ export function NotificationInbox({ onClose }: NotificationInboxProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null);
 
-  // Get user ID from localStorage (assuming it's stored there)
-  const userId = localStorage.getItem('userId') ? parseInt(localStorage.getItem('userId')!) : null;
+  // Get user ID from session
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const sessionRes = await checkSession();
+        setCurrentUser(sessionRes.data.user);
+      } catch (err) {
+        console.error('Failed to get current user:', err);
+        setError('Failed to authenticate user');
+      }
+    };
+    fetchCurrentUser();
+  }, []);
+
+  const userId = currentUser?.id || null;
 
   // Use WebSocket hook for real-time notifications
   const { notifications: wsNotifications, isConnected, markAsRead } = useWebSocket(userId);

@@ -20,7 +20,7 @@ export const useWebSocket = (userId: number | null) => {
     if (!userId) return;
 
     // Initialize socket connection
-    socketRef.current = io('http://localhost:3003', {
+    socketRef.current = io('http://localhost:10000', {
       transports: ['websocket', 'polling'],
     });
 

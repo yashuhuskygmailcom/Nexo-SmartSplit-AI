@@ -130,12 +130,12 @@ export function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center p-3 bg-white/5 rounded-lg">
-                <p className="text-2xl text-white">${stats.totalExpenses}</p>
+                <p className="text-2xl text-white">₹{stats.totalExpenses}</p>
                 <p className="text-blue-200 text-sm">Total Expenses</p>
               </div>
               <div className="text-center p-3 bg-white/5 rounded-lg">
                 <p className="text-2xl text-white">{stats.expensesThisMonth}</p>
-                <p className="text-blue-200 text-sm">This Month</p>
+                <p className="text-blue-200 text-sm">Total splits</p>
               </div>
               <div className="text-center p-3 bg-white/5 rounded-lg">
                 <p className="text-2xl text-white">{stats.friendsCount}</p>

@@ -215,7 +215,7 @@ export function OCRScanner({ onBack, onScan }: OCRScannerProps) {
                 </div>
                 <div className="p-3 bg-white/5 rounded-lg">
                   <p className="text-blue-200 text-sm">Total Amount</p>
-                  <p className="text-white text-xl">${extractedData.total.toFixed(2)}</p>
+                  <p className="text-white text-xl">₹{extractedData.total.toFixed(2)}</p>
                 </div>
               </div>
 
@@ -225,7 +225,7 @@ export function OCRScanner({ onBack, onScan }: OCRScannerProps) {
                   {extractedData.items.map((item, index) => (
                     <div key={index} className="flex justify-between items-center p-2 bg-white/5 rounded">
                       <span className="text-white">{item.name}</span>
-                      <span className="text-blue-200">${item.price.toFixed(2)}</span>
+                      <span className="text-blue-200">₹{item.price.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
