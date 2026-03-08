@@ -19,8 +19,8 @@ const io = new Server(server, {
     credentials: true,
   },
 });
-const PORT = process.env.PORT || 10000;
-const DB_PATH = path.join(__dirname, 'nexo_db.sqlite');
+const PORT = process.env.PORT || 3001;
+const DB_PATH = path.join(__dirname, '../db/nexo.db');
 
 // ---------- DB SETUP ----------
 if (!fs.existsSync(__dirname)) {
@@ -306,13 +306,15 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Serve static files from the React app build directory
-app.use(express.static(path.join(__dirname, '../build')));
+// Serve static files from the React app build directory (only in production)
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../build')));
 
-// Serve React app on root route
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../build/index.html'));
-});
+  // Serve React app on root route (only in production)
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../build/index.html'));
+  });
+}
 
 // ---------- AUTH ROUTES ----------
 
@@ -1375,93 +1377,153 @@ app.post('/api/wallet/pay-debt', requireAuth, (req, res) => {
                             if (err6) console.error('Update split error:', err6);
                             completed++;
                             if (completed === updates.length) {
-                              // Return updated balance and summary
-                              db.get(
-                                'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
-                                [userId],
-                                (err4, updatedWallet) => {
-                                  if (err4) {
-                                    return res.status(500).json({ message: 'Failed to fetch wallet' });
-                                  }
-                                  // Get updated summary
-                                  const paidSql = `
-                                    SELECT COALESCE(SUM(amount), 0) AS totalPaid
-                                    FROM expenses
-                                    WHERE paid_by = ?
-                                  `;
-                                  const owedSql = `
-                                    SELECT COALESCE(SUM(amount_owed), 0) AS totalOwed
-                                    FROM expense_splits
-                                    WHERE user_id = ?
-                                  `;
-                                  db.get(paidSql, [userId], (errPaid, paidRow) => {
-                                    if (errPaid) {
-                                      console.error('Summary paid error:', errPaid);
-                                      return res.status(500).json({ message: 'Failed to get summary' });
-                                    }
-                                    db.get(owedSql, [userId], (errOwed, owedRow) => {
-                                      if (errOwed) {
-                                        console.error('Summary owed error:', errOwed);
-                                        return res.status(500).json({ message: 'Failed to get summary' });
+                              // Refund the amount back to the recipient (friendId)
+                              db.run(
+                                'INSERT OR IGNORE INTO user_wallets (user_id, balance, currency) VALUES (?, ?, ?)',
+                                [friendId, 0, 'INR'],
+                                () => {
+                                  db.run(
+                                    'UPDATE user_wallets SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+                                    [amount, friendId],
+                                    (errRefund) => {
+                                      if (errRefund) {
+                                        console.error('Refund to recipient error:', errRefund);
+                                        return res.status(500).json({ message: 'Failed to process refund' });
                                       }
-                                      res.json({
-                                        message: 'Debt paid successfully',
-                                        wallet: updatedWallet,
-                                        summary: {
-                                          totalPaid: paidRow.totalPaid || 0,
-                                          totalOwed: owedRow.totalOwed || 0,
+
+                                      // Record refund transaction for recipient
+                                      db.run(
+                                        'INSERT INTO wallet_transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)',
+                                        [friendId, 'credit', amount, 'Refund from debt payment'],
+                                        (errTrans) => {
+                                          if (errTrans) {
+                                            console.error('Record refund transaction error:', errTrans);
+                                            return res.status(500).json({ message: 'Failed to record refund transaction' });
+                                          }
+
+                                          // Return updated balance and summary
+                                          db.get(
+                                            'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
+                                            [userId],
+                                            (err4, updatedWallet) => {
+                                              if (err4) {
+                                                return res.status(500).json({ message: 'Failed to fetch wallet' });
+                                              }
+                                              // Get updated summary
+                                              const paidSql = `
+                                                SELECT COALESCE(SUM(amount), 0) AS totalPaid
+                                                FROM expenses
+                                                WHERE paid_by = ?
+                                              `;
+                                              const owedSql = `
+                                                SELECT COALESCE(SUM(amount_owed), 0) AS totalOwed
+                                                FROM expense_splits
+                                                WHERE user_id = ?
+                                              `;
+                                              db.get(paidSql, [userId], (errPaid, paidRow) => {
+                                                if (errPaid) {
+                                                  console.error('Summary paid error:', errPaid);
+                                                  return res.status(500).json({ message: 'Failed to get summary' });
+                                                }
+                                                db.get(owedSql, [userId], (errOwed, owedRow) => {
+                                                  if (errOwed) {
+                                                    console.error('Summary owed error:', errOwed);
+                                                    return res.status(500).json({ message: 'Failed to get summary' });
+                                                  }
+                                                  res.json({
+                                                    message: 'Debt paid successfully',
+                                                    wallet: updatedWallet,
+                                                    summary: {
+                                                      totalPaid: paidRow.totalPaid || 0,
+                                                      totalOwed: owedRow.totalOwed || 0,
+                                                    }
+                                                  });
+                                                });
+                                              });
+                                            }
+                                          );
                                         }
-                                      });
-                                    });
-                                  });
+                                      );
+                                    }
+                                  );
                                 }
                               );
                             }
                           });
                         });
                       } else {
-                        // No splits to update, return wallet and summary
-                        db.get(
-                          'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
-                          [userId],
-                          (err4, updatedWallet) => {
-                            if (err4) {
-                              return res.status(500).json({ message: 'Failed to fetch wallet' });
-                            }
-                            // Get updated summary
-                            const paidSql = `
-                              SELECT COALESCE(SUM(amount), 0) AS totalPaid
-                              FROM expenses
-                              WHERE paid_by = ?
-                            `;
-                            const owedSql = `
-                              SELECT COALESCE(SUM(amount_owed), 0) AS totalOwed
-                              FROM expense_splits
-                              WHERE user_id = ?
-                            `;
-                            db.get(paidSql, [userId], (errPaid, paidRow) => {
-                              if (errPaid) {
-                                console.error('Summary paid error:', errPaid);
-                                return res.status(500).json({ message: 'Failed to get summary' });
-                              }
-                              db.get(owedSql, [userId], (errOwed, owedRow) => {
-                                if (errOwed) {
-                                  console.error('Summary owed error:', errOwed);
-                                  return res.status(500).json({ message: 'Failed to get summary' });
+                        // No splits to update, but still refund to recipient
+                        db.run(
+                          'INSERT OR IGNORE INTO user_wallets (user_id, balance, currency) VALUES (?, ?, ?)',
+                          [friendId, 0, 'INR'],
+                          () => {
+                            db.run(
+                              'UPDATE user_wallets SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+                              [amount, friendId],
+                              (errRefund) => {
+                                if (errRefund) {
+                                  console.error('Refund to recipient error:', errRefund);
+                                  return res.status(500).json({ message: 'Failed to process refund' });
                                 }
-                                res.json({
-                                  message: 'Debt paid successfully',
-                                  wallet: updatedWallet,
-                                  summary: {
-                                    totalPaid: paidRow.totalPaid || 0,
-                                    totalOwed: owedRow.totalOwed || 0,
+
+                                // Record refund transaction for recipient
+                                db.run(
+                                  'INSERT INTO wallet_transactions (user_id, type, amount, description) VALUES (?, ?, ?, ?)',
+                                  [friendId, 'credit', amount, 'Refund from debt payment'],
+                                  (errTrans) => {
+                                    if (errTrans) {
+                                      console.error('Record refund transaction error:', errTrans);
+                                      return res.status(500).json({ message: 'Failed to record refund transaction' });
+                                    }
+
+                                    // Return wallet and summary
+                                    db.get(
+                                      'SELECT balance, currency FROM user_wallets WHERE user_id = ?',
+                                      [userId],
+                                      (err4, updatedWallet) => {
+                                        if (err4) {
+                                          return res.status(500).json({ message: 'Failed to fetch wallet' });
+                                        }
+                                        // Get updated summary
+                                        const paidSql = `
+                                          SELECT COALESCE(SUM(amount), 0) AS totalPaid
+                                          FROM expenses
+                                          WHERE paid_by = ?
+                                        `;
+                                        const owedSql = `
+                                          SELECT COALESCE(SUM(amount_owed), 0) AS totalOwed
+                                          FROM expense_splits
+                                          WHERE user_id = ?
+                                        `;
+                                        db.get(paidSql, [userId], (errPaid, paidRow) => {
+                                          if (errPaid) {
+                                            console.error('Summary paid error:', errPaid);
+                                            return res.status(500).json({ message: 'Failed to get summary' });
+                                          }
+                                          db.get(owedSql, [userId], (errOwed, owedRow) => {
+                                            if (errOwed) {
+                                              console.error('Summary owed error:', errOwed);
+                                              return res.status(500).json({ message: 'Failed to get summary' });
+                                            }
+                                            res.json({
+                                              message: 'Debt paid successfully',
+                                              wallet: updatedWallet,
+                                              summary: {
+                                                totalPaid: paidRow.totalPaid || 0,
+                                                totalOwed: owedRow.totalOwed || 0,
+                                              }
+                                            });
+                                          });
+                                        });
+                                      }
+                                    );
                                   }
-                                });
-                              });
-                            });
+                                );
+                              }
+                            );
                           }
-);
-}
+                        );
+                      }
                     });
                   }
                 );

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
-const dbPath = path.resolve(__dirname, 'server/nexo_db.sqlite');
+const dbPath = path.resolve(__dirname, 'db/nexo.db');
 const dbDir = path.dirname(dbPath);
 
 if (!fs.existsSync(dbDir)) {
@@ -109,6 +109,71 @@ db.serialize(() => {
       badge_id INTEGER NOT NULL,
       awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(user_id, badge_id)
+    )
+  `);
+
+  // Wallet table for virtual money
+  db.run(`
+    CREATE TABLE user_wallets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      balance REAL DEFAULT 0,
+      currency TEXT DEFAULT 'INR',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Wallet transaction history
+  db.run(`
+    CREATE TABLE wallet_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Budget categories for users
+  db.run(`
+    CREATE TABLE budget_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      budget_amount REAL NOT NULL,
+      icon TEXT DEFAULT '💰',
+      color TEXT DEFAULT 'from-slate-500 to-slate-600',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Notifications table for notification center
+  db.run(`
+    CREATE TABLE notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      data TEXT,
+      status TEXT DEFAULT 'unread',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      read_at DATETIME
+    )
+  `);
+
+  // Notification queue for processing
+  db.run(`
+    CREATE TABLE notification_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      notification_id INTEGER NOT NULL,
+      scheduled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      processed_at DATETIME,
+      status TEXT DEFAULT 'pending',
+      FOREIGN KEY (notification_id) REFERENCES notifications (id)
     )
   `, (err) => {
     if (err) {
